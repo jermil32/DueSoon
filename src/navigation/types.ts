@@ -2,15 +2,17 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { CompositeScreenProps, NavigatorScreenParams } from '@react-navigation/native';
 
-import { AssetCategory } from '../types';
+import { AssetCategory, MaintenanceTask, Asset } from '../types';
 
 export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList>;
   AddAsset: { assetId?: string; category?: AssetCategory } | undefined;
+  AssetsByCategory: { category: AssetCategory };
   AssetDetail: { assetId: string };
   AddTask: { assetId: string; taskId?: string };
-  TaskDetail: { taskId: string };
-  LogMaintenance: { taskId: string };
+  TaskDetail: { taskId: string; task?: MaintenanceTask; asset?: Asset };
+  LogMaintenance: { taskId: string; logId?: string };
+  Calendar: undefined;
 };
 
 export type MainTabParamList = {

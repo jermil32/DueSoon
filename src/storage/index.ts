@@ -11,7 +11,10 @@ const KEYS = {
 const defaultSettings: AppSettings = {
   notificationsEnabled: true,
   defaultReminderDays: 7,
+  reminderHour: 9,
+  reminderMinute: 0,
   theme: 'system',
+  onboardingCompleted: false,
 };
 
 // Assets
@@ -106,6 +109,20 @@ export async function addLog(log: MaintenanceLog): Promise<void> {
   const logs = await getLogs();
   logs.push(log);
   await saveLogs(logs);
+}
+
+export async function updateLog(log: MaintenanceLog): Promise<void> {
+  const logs = await getLogs();
+  const index = logs.findIndex((l) => l.id === log.id);
+  if (index !== -1) {
+    logs[index] = log;
+    await saveLogs(logs);
+  }
+}
+
+export async function getLogById(logId: string): Promise<MaintenanceLog | null> {
+  const logs = await getLogs();
+  return logs.find((l) => l.id === logId) || null;
 }
 
 // Settings

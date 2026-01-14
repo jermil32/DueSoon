@@ -40,6 +40,10 @@ export interface MaintenanceTask {
   nextDueHours?: number;
   reminderDaysBefore: number;
   notificationId?: string;
+  // Fluid change specific fields
+  filterPartNumber?: string;
+  fluidType?: string;
+  fluidCapacity?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -56,8 +60,33 @@ export interface MaintenanceLog {
   createdAt: number;
 }
 
+export type IconOption =
+  | 'car'
+  | 'tractor'
+  | 'atv'
+  | 'lawnmower'
+  | 'home'
+  | 'boat'
+  | 'airplane'
+  | 'dollar'
+  | 'garden'
+  | 'tools'
+  | 'bicycle'
+  | 'motorcycle'
+  | 'truck'
+  | 'rv'
+  | 'snowmobile'
+  | 'generator'
+  | 'livestock'
+  | 'pets';
+
 export interface AppSettings {
   notificationsEnabled: boolean;
   defaultReminderDays: number;
+  reminderHour: number;
+  reminderMinute: number;
   theme: 'light' | 'dark' | 'system';
+  customCategoryLabels?: Record<AssetCategory, string>;
+  customCategoryIcons?: Record<AssetCategory, IconOption>;
+  onboardingCompleted?: boolean;
 }
