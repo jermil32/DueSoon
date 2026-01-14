@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
 import { RootStackScreenProps } from '../navigation/types';
 import { MaintenanceTask, Asset, MaintenanceLog } from '../types';
 import { getTasks, getAssets, deleteTask, getLogsForTask, updateTask } from '../storage';
@@ -72,6 +73,7 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
   );
 
   const handleDelete = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Alert.alert(
       'Delete Task',
       `Are you sure you want to delete "${task?.name}"? This will also delete all maintenance history for this task.`,
@@ -85,6 +87,7 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
               await cancelNotification(task.notificationId);
             }
             await deleteTask(taskId);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             navigation.goBack();
           },
         },
@@ -159,31 +162,57 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
     }
   };
 
-  const renderLogItem = ({ item }: { item: MaintenanceLog }) => (
-    <TouchableOpacity
-      style={styles.logItem}
-      onPress={() => handleEditLog(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.logDot} />
-      <View style={styles.logContent}>
-        <Text style={styles.logDate}>{formatDate(item.completedAt)}</Text>
-        {item.mileage && (
-          <Text style={styles.logDetail}>
-            {item.mileage.toLocaleString()} miles
-          </Text>
-        )}
-        {item.hours && (
-          <Text style={styles.logDetail}>{item.hours.toLocaleString()} hours</Text>
-        )}
-        {item.cost && (
-          <Text style={styles.logDetail}>${item.cost.toFixed(2)}</Text>
-        )}
-        {item.notes && <Text style={styles.logNotes}>{item.notes}</Text>}
-      </View>
-      <Text style={styles.editHint}>Tap to edit</Text>
-    </TouchableOpacity>
-  );
+  const renderLogItem = ({ item, index }: { item: MaintenanceLog; index: number }) => {
+    const isFirst = index === 0;
+    const isLast = index === logs.length - 1;
+
+    return (
+      <TouchableOpacity
+        style={styles.logItem}
+        onPress={() => handleEditLog(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.timelineColumn}>
+          {!isFirst && <View style={styles.timelineLineTop} />}
+          <View style={[styles.logDot, isFirst && styles.logDotFirst]} />
+          {!isLast && <View style={styles.timelineLineBottom} />}
+        </View>
+        <View style={styles.logCard}>
+          <View style={styles.logCardHeader}>
+            <Text style={styles.logDate}>{formatDate(item.completedAt)}</Text>
+            <Text style={styles.editHint}>Edit</Text>
+          </View>
+          <View style={styles.logCardBody}>
+            {item.mileage && (
+              <View style={styles.logDetailRow}>
+                <Text style={styles.logDetailLabel}>Odometer:</Text>
+                <Text style={styles.logDetailValue}>
+                  {item.mileage.toLocaleString()} mi
+                </Text>
+              </View>
+            )}
+            {item.hours && (
+              <View style={styles.logDetailRow}>
+                <Text style={styles.logDetailLabel}>Hours:</Text>
+                <Text style={styles.logDetailValue}>
+                  {item.hours.toLocaleString()} hrs
+                </Text>
+              </View>
+            )}
+            {item.cost && (
+              <View style={styles.logDetailRow}>
+                <Text style={styles.logDetailLabel}>Cost:</Text>
+                <Text style={styles.logDetailValue}>${item.cost.toFixed(2)}</Text>
+              </View>
+            )}
+            {item.notes && (
+              <Text style={styles.logNotes}>"{item.notes}"</Text>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   if (loading) {
     return (
@@ -321,13 +350,19 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
         <View style={styles.historySection}>
           <Text style={styles.sectionTitle}>Maintenance History</Text>
           {logs.length === 0 ? (
-            <Text style={styles.emptyHistory}>
-              No maintenance logged yet. Complete this task to start tracking.
-            </Text>
+            <View style={styles.emptyHistoryContainer}>
+              <Text style={styles.emptyHistoryIcon}>📋</Text>
+              <Text style={styles.emptyHistory}>
+                No maintenance logged yet
+              </Text>
+              <Text style={styles.emptyHistoryHint}>
+                Tap "Log Maintenance" above to record your first service and start building your maintenance history.
+              </Text>
+            </View>
           ) : (
             <View style={styles.timeline}>
-              {logs.map((log) => (
-                <View key={log.id}>{renderLogItem({ item: log })}</View>
+              {logs.map((log, index) => (
+                <View key={log.id}>{renderLogItem({ item: log, index })}</View>
               ))}
             </View>
           )}
@@ -512,50 +547,112 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginBottom: SPACING.md,
   },
+  emptyHistoryContainer: {
+    alignItems: 'center',
+    padding: SPACING.xl,
+  },
+  emptyHistoryIcon: {
+    fontSize: 40,
+    marginBottom: SPACING.md,
+  },
   emptyHistory: {
+    fontSize: FONT_SIZE.lg,
+    color: COLORS.text,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: SPACING.sm,
+  },
+  emptyHistoryHint: {
     fontSize: FONT_SIZE.md,
     color: COLORS.textSecondary,
     textAlign: 'center',
-    padding: SPACING.lg,
+    lineHeight: 22,
   },
   timeline: {
-    paddingLeft: SPACING.sm,
+    paddingLeft: SPACING.xs,
+    marginTop: SPACING.sm,
   },
   logItem: {
     flexDirection: 'row',
-    marginBottom: SPACING.md,
+    minHeight: 80,
+  },
+  timelineColumn: {
+    width: 24,
+    alignItems: 'center',
+  },
+  timelineLineTop: {
+    width: 2,
+    flex: 1,
+    backgroundColor: COLORS.border,
+  },
+  timelineLineBottom: {
+    width: 2,
+    flex: 1,
+    backgroundColor: COLORS.border,
   },
   logDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     backgroundColor: COLORS.primary,
-    marginTop: 4,
-    marginRight: SPACING.md,
+    borderWidth: 2,
+    borderColor: COLORS.surface,
+    zIndex: 1,
   },
-  logContent: {
+  logDotFirst: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: COLORS.success,
+    borderWidth: 3,
+  },
+  logCard: {
     flex: 1,
+    backgroundColor: COLORS.background,
+    borderRadius: 10,
+    marginLeft: SPACING.sm,
+    marginBottom: SPACING.md,
+    padding: SPACING.md,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
+  },
+  logCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  logCardBody: {
+    gap: SPACING.xs,
   },
   logDate: {
     fontSize: FONT_SIZE.md,
-    fontWeight: '500',
+    fontWeight: '600',
     color: COLORS.text,
   },
-  logDetail: {
+  logDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  logDetailLabel: {
     fontSize: FONT_SIZE.sm,
     color: COLORS.textSecondary,
-    marginTop: 2,
+  },
+  logDetailValue: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.text,
+    fontWeight: '500',
   },
   logNotes: {
     fontSize: FONT_SIZE.sm,
-    color: COLORS.text,
+    color: COLORS.textSecondary,
     marginTop: SPACING.xs,
     fontStyle: 'italic',
   },
   editHint: {
     fontSize: FONT_SIZE.sm,
     color: COLORS.primary,
-    marginLeft: 'auto',
+    fontWeight: '500',
   },
   footer: {
     flexDirection: 'row',

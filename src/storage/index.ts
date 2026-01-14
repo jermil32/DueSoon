@@ -105,6 +105,11 @@ export async function getLogsForTask(taskId: string): Promise<MaintenanceLog[]> 
   return logs.filter((l) => l.taskId === taskId).sort((a, b) => b.completedAt - a.completedAt);
 }
 
+export async function getLogsForAsset(assetId: string): Promise<MaintenanceLog[]> {
+  const logs = await getLogs();
+  return logs.filter((l) => l.assetId === assetId).sort((a, b) => b.completedAt - a.completedAt);
+}
+
 export async function addLog(log: MaintenanceLog): Promise<void> {
   const logs = await getLogs();
   logs.push(log);

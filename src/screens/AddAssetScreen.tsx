@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { RootStackScreenProps } from '../navigation/types';
 import { Asset, AssetCategory } from '../types';
 import { addAsset, getAssets, updateAsset } from '../storage';
@@ -108,9 +109,11 @@ export default function AddAssetScreen({ navigation, route }: Props) {
         await addAsset(asset);
       }
 
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       navigation.goBack();
     } catch (error: any) {
       console.error('Save error:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', `Failed to save: ${error?.message || 'Unknown error'}`);
     } finally {
       setLoading(false);

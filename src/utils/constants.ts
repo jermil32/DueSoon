@@ -41,23 +41,23 @@ export const LIGHT_COLORS: ColorScheme = {
 };
 
 export const DARK_COLORS: ColorScheme = {
-  primary: '#FE7E02',
-  primaryLight: '#FFA040',
+  primary: '#FF8C1A',        // Slightly brighter orange for dark mode visibility
+  primaryLight: '#FFB366',
   primaryDark: '#E06C00',
-  secondary: '#E8EAED',
-  secondaryLight: '#9AA0A6',
-  background: '#121212',
-  surface: '#1E1E1E',
-  text: '#E8EAED',
-  textSecondary: '#9AA0A6',
-  textLight: '#5F6368',
-  border: '#3C4043',
-  success: '#34A853',
-  warning: '#FBBC04',
-  danger: '#EA4335',
-  overdue: '#EA4335',
-  dueSoon: '#FBBC04',
-  upcoming: '#34A853',
+  secondary: '#3A3F47',      // Muted dark gray for secondary elements
+  secondaryLight: '#5F6368',
+  background: '#000000',     // True black for OLED screens
+  surface: '#121212',        // Slightly elevated dark surface
+  text: '#FFFFFF',           // Pure white text for maximum contrast
+  textSecondary: '#A0A0A0',  // Lighter gray for better readability
+  textLight: '#666666',
+  border: '#2A2A2A',         // Subtle dark border
+  success: '#4ADE80',        // Brighter green for dark mode
+  warning: '#FBBF24',        // Brighter yellow/amber
+  danger: '#F87171',         // Brighter red for dark mode
+  overdue: '#F87171',
+  dueSoon: '#FBBF24',
+  upcoming: '#4ADE80',
 };
 
 // Default to light colors for backwards compatibility

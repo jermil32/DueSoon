@@ -223,7 +223,23 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
       // Success feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      navigation.goBack();
+      // Build confirmation message
+      let confirmMessage = `${task.name} marked complete.`;
+      if (updatedTask.nextDue) {
+        confirmMessage += `\n\nNext due: ${formatDate(updatedTask.nextDue)}`;
+      }
+      if (updatedTask.nextDueMileage) {
+        confirmMessage += `\nor at ${updatedTask.nextDueMileage.toLocaleString()} miles`;
+      }
+      if (updatedTask.nextDueHours) {
+        confirmMessage += `\nor at ${updatedTask.nextDueHours.toLocaleString()} hours`;
+      }
+
+      Alert.alert(
+        'Maintenance Logged',
+        confirmMessage,
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
     } catch (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', 'Failed to log maintenance. Please try again.');

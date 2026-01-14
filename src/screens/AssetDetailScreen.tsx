@@ -9,11 +9,13 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
 import { RootStackScreenProps } from '../navigation/types';
-import { Asset, MaintenanceTask } from '../types';
-import { getAssets, getTasksForAsset, deleteAsset } from '../storage';
+import { Asset, MaintenanceTask, MaintenanceLog } from '../types';
+import { getAssets, getTasksForAsset, deleteAsset, getLogsForAsset } from '../storage';
 import { getTaskStatus, formatDate, getDaysUntilDue, formatInterval } from '../utils/dates';
 import { COLORS, SPACING, FONT_SIZE, CATEGORY_LABELS } from '../utils/constants';
+import { generateServiceHistoryPDF } from '../utils/pdfExport';
 
 type Props = RootStackScreenProps<'AssetDetail'>;
 
@@ -21,16 +23,19 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
   const { assetId } = route.params;
   const [asset, setAsset] = useState<Asset | null>(null);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
+  const [logs, setLogs] = useState<MaintenanceLog[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
       setError(null);
-      const [assets, assetTasks] = await Promise.all([
+      const [assets, assetTasks, assetLogs] = await Promise.all([
         getAssets(),
         getTasksForAsset(assetId),
+        getLogsForAsset(assetId),
       ]);
       const foundAsset = assets.find((a) => a.id === assetId);
       if (!foundAsset) {
@@ -44,6 +49,7 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
           if (!b.nextDue) return -1;
           return a.nextDue - b.nextDue;
         }));
+        setLogs(assetLogs);
       }
     } catch (err) {
       setError('Failed to load asset data. Please try again.');
@@ -66,6 +72,7 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
   };
 
   const handleDelete = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Alert.alert(
       'Delete Asset',
       `Are you sure you want to delete "${asset?.name}"? This will also delete all associated maintenance tasks and history.`,
@@ -76,11 +83,34 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
           style: 'destructive',
           onPress: async () => {
             await deleteAsset(assetId);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             navigation.goBack();
           },
         },
       ]
     );
+  };
+
+  const handleExportPDF = async () => {
+    if (!asset) return;
+
+    setExporting(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    try {
+      await generateServiceHistoryPDF({
+        asset,
+        tasks,
+        logs,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      console.error('Error exporting PDF:', err);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Export Failed', 'Unable to generate PDF. Please try again.');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const getStatusColor = (status: ReturnType<typeof getTaskStatus>) => {
@@ -190,6 +220,17 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
                 <Text style={styles.editButtonText}>Edit</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                style={styles.exportButton}
+                onPress={handleExportPDF}
+                disabled={exporting}
+                accessibilityLabel={`Export service history for ${asset.name}`}
+                accessibilityRole="button"
+              >
+                <Text style={styles.exportButtonText}>
+                  {exporting ? 'Exporting...' : 'Export PDF'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={styles.deleteButton}
                 onPress={handleDelete}
                 accessibilityLabel={`Delete ${asset.name}`}
@@ -207,9 +248,12 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No maintenance tasks yet.</Text>
+            <Text style={styles.emptyIcon}>🔧</Text>
+            <Text style={styles.emptyText}>No maintenance tasks yet</Text>
             <Text style={styles.emptySubtext}>
-              Add tasks to track maintenance schedules.
+              Tap the + button below to add your first maintenance task.
+              {'\n\n'}
+              Examples: Oil changes, tire rotations, filter replacements, inspections, and more.
             </Text>
           </View>
         }
@@ -328,6 +372,16 @@ const styles = StyleSheet.create({
     color: COLORS.surface,
     fontWeight: '500',
   },
+  exportButton: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    borderRadius: 8,
+    backgroundColor: COLORS.primary,
+  },
+  exportButtonText: {
+    color: COLORS.surface,
+    fontWeight: '500',
+  },
   deleteButton: {
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.sm,
@@ -406,15 +460,21 @@ const styles = StyleSheet.create({
     padding: SPACING.xl,
     alignItems: 'center',
   },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: SPACING.md,
+  },
   emptyText: {
-    fontSize: FONT_SIZE.lg,
+    fontSize: FONT_SIZE.xl,
     color: COLORS.text,
-    fontWeight: '500',
+    fontWeight: '600',
+    marginBottom: SPACING.sm,
   },
   emptySubtext: {
     fontSize: FONT_SIZE.md,
     color: COLORS.textSecondary,
-    marginTop: SPACING.xs,
+    textAlign: 'center',
+    lineHeight: 22,
   },
   fab: {
     position: 'absolute',
