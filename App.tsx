@@ -20,6 +20,7 @@ import {
   LogMaintenanceScreen,
   OnboardingScreen,
   CalendarScreen,
+  UpgradeScreen,
 } from './src/screens';
 import {
   requestNotificationPermissions,
@@ -29,6 +30,7 @@ import {
 } from './src/utils/notifications';
 import { getSettings } from './src/storage';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import { PremiumProvider } from './src/context/PremiumContext';
 import { LIGHT_COLORS } from './src/utils/constants';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -208,6 +210,11 @@ function AppNavigator() {
           component={CalendarScreen}
           options={{ title: 'Calendar' }}
         />
+        <Stack.Screen
+          name="Upgrade"
+          component={UpgradeScreen}
+          options={{ title: 'Upgrade to Premium', presentation: 'modal' }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -345,8 +352,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AppContent />
-    </ThemeProvider>
+    <PremiumProvider>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
+    </PremiumProvider>
   );
 }

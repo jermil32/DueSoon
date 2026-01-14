@@ -16,11 +16,13 @@ import { getAssets, getTasksForAsset, deleteAsset, getLogsForAsset } from '../st
 import { getTaskStatus, formatDate, getDaysUntilDue, formatInterval } from '../utils/dates';
 import { COLORS, SPACING, FONT_SIZE, CATEGORY_LABELS } from '../utils/constants';
 import { generateServiceHistoryPDF } from '../utils/pdfExport';
+import { usePremium } from '../context/PremiumContext';
 
 type Props = RootStackScreenProps<'AssetDetail'>;
 
 export default function AssetDetailScreen({ navigation, route }: Props) {
   const { assetId } = route.params;
+  const { isPremium } = usePremium();
   const [asset, setAsset] = useState<Asset | null>(null);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [logs, setLogs] = useState<MaintenanceLog[]>([]);
@@ -93,6 +95,12 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
 
   const handleExportPDF = async () => {
     if (!asset) return;
+
+    if (!isPremium) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      navigation.navigate('Upgrade', { feature: 'PDF Export' });
+      return;
+    }
 
     setExporting(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -220,14 +228,14 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
                 <Text style={styles.editButtonText}>Edit</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.exportButton}
+                style={[styles.exportButton, !isPremium && styles.exportButtonLocked]}
                 onPress={handleExportPDF}
                 disabled={exporting}
                 accessibilityLabel={`Export service history for ${asset.name}`}
                 accessibilityRole="button"
               >
                 <Text style={styles.exportButtonText}>
-                  {exporting ? 'Exporting...' : 'Export PDF'}
+                  {exporting ? 'Exporting...' : isPremium ? 'Export PDF' : 'Export PDF 🔒'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -377,6 +385,9 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
     borderRadius: 8,
     backgroundColor: COLORS.primary,
+  },
+  exportButtonLocked: {
+    backgroundColor: COLORS.textSecondary,
   },
   exportButtonText: {
     color: COLORS.surface,

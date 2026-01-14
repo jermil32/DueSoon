@@ -20,6 +20,7 @@ import { getSettings, saveSettings, clearAllData, getAssets, getTasks, getLogs }
 import { requestNotificationPermissions, cancelAllNotifications, MAINTENANCE_CATEGORY } from '../utils/notifications';
 import { SPACING, FONT_SIZE } from '../utils/constants';
 import { useTheme } from '../context/ThemeContext';
+import { usePremium, FREE_ASSET_LIMIT } from '../context/PremiumContext';
 
 const APP_VERSION = Constants.expoConfig?.version || '1.0.0';
 
@@ -27,6 +28,7 @@ type Props = MainTabScreenProps<'Settings'>;
 
 export default function SettingsScreen({ navigation }: Props) {
   const { colors, themeMode, setThemeMode, isDark } = useTheme();
+  const { isPremium } = usePremium();
   const [settings, setSettings] = useState<AppSettings>({
     notificationsEnabled: true,
     defaultReminderDays: 7,
@@ -80,6 +82,13 @@ export default function SettingsScreen({ navigation }: Props) {
 
   const handleThemeChange = async (theme: 'light' | 'dark' | 'system') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Dark mode requires premium
+    if ((theme === 'dark' || theme === 'system') && !isPremium) {
+      navigation.navigate('Upgrade', { feature: 'Dark Mode' });
+      return;
+    }
+
     await setThemeMode(theme);
   };
 
@@ -246,6 +255,54 @@ export default function SettingsScreen({ navigation }: Props) {
       fontSize: FONT_SIZE.lg,
       fontWeight: '600',
     },
+    premiumInfo: {
+      marginBottom: SPACING.md,
+    },
+    premiumTitle: {
+      fontSize: FONT_SIZE.xl,
+      fontWeight: '700',
+      color: colors.text,
+      marginBottom: SPACING.xs,
+    },
+    premiumDescription: {
+      fontSize: FONT_SIZE.md,
+      color: colors.textSecondary,
+      marginBottom: SPACING.sm,
+    },
+    premiumLimit: {
+      fontSize: FONT_SIZE.sm,
+      color: colors.primary,
+      fontWeight: '500',
+    },
+    upgradeButton: {
+      backgroundColor: colors.primary,
+      padding: SPACING.md,
+      borderRadius: 8,
+      alignItems: 'center',
+    },
+    upgradeButtonText: {
+      color: '#FFFFFF',
+      fontSize: FONT_SIZE.lg,
+      fontWeight: '700',
+    },
+    premiumActiveContainer: {
+      alignItems: 'center',
+      padding: SPACING.md,
+    },
+    premiumActiveIcon: {
+      fontSize: 32,
+      marginBottom: SPACING.sm,
+    },
+    premiumActiveText: {
+      fontSize: FONT_SIZE.lg,
+      fontWeight: '600',
+      color: colors.primary,
+    },
+    premiumActiveSubtext: {
+      fontSize: FONT_SIZE.sm,
+      color: colors.textSecondary,
+      marginTop: SPACING.xs,
+    },
     aboutInfo: {
       alignItems: 'center',
     },
@@ -301,7 +358,7 @@ export default function SettingsScreen({ navigation }: Props) {
             onPress={() => handleThemeChange('dark')}
           >
             <Text style={[styles.themeButtonText, themeMode === 'dark' && styles.themeButtonTextActive]}>
-              Dark
+              Dark {!isPremium && '🔒'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -309,7 +366,7 @@ export default function SettingsScreen({ navigation }: Props) {
             onPress={() => handleThemeChange('system')}
           >
             <Text style={[styles.themeButtonText, themeMode === 'system' && styles.themeButtonTextActive]}>
-              System
+              Auto {!isPremium && '🔒'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -360,6 +417,38 @@ export default function SettingsScreen({ navigation }: Props) {
           <Text style={styles.dangerButtonText}>Clear All Data</Text>
         </TouchableOpacity>
       </View>
+
+      {!isPremium && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Premium</Text>
+          <View style={styles.premiumInfo}>
+            <Text style={styles.premiumTitle}>Upgrade to Premium</Text>
+            <Text style={styles.premiumDescription}>
+              Unlock unlimited assets, PDF export, dark mode, and more.
+            </Text>
+            <Text style={styles.premiumLimit}>
+              Free: {FREE_ASSET_LIMIT} assets • You have {stats.assets}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.upgradeButton}
+            onPress={() => navigation.navigate('Upgrade')}
+          >
+            <Text style={styles.upgradeButtonText}>Unlock Premium - $9.99</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {isPremium && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Premium</Text>
+          <View style={styles.premiumActiveContainer}>
+            <Text style={styles.premiumActiveIcon}>⭐</Text>
+            <Text style={styles.premiumActiveText}>Premium Active</Text>
+            <Text style={styles.premiumActiveSubtext}>Thank you for your support!</Text>
+          </View>
+        </View>
+      )}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>About</Text>

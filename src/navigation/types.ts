@@ -13,6 +13,7 @@ export type RootStackParamList = {
   TaskDetail: { taskId: string; task?: MaintenanceTask; asset?: Asset };
   LogMaintenance: { taskId: string; logId?: string };
   Calendar: undefined;
+  Upgrade: { feature?: string } | undefined;
 };
 
 export type MainTabParamList = {

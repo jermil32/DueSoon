@@ -15,6 +15,7 @@ import { RootStackScreenProps } from '../navigation/types';
 import { Asset, AssetCategory } from '../types';
 import { addAsset, getAssets, updateAsset } from '../storage';
 import { COLORS, SPACING, FONT_SIZE, CATEGORY_LABELS, ASSET_CATEGORIES } from '../utils/constants';
+import { usePremium, FREE_ASSET_LIMIT } from '../context/PremiumContext';
 
 type Props = RootStackScreenProps<'AddAsset'>;
 
@@ -22,6 +23,7 @@ export default function AddAssetScreen({ navigation, route }: Props) {
   const editingId = route.params?.assetId;
   const initialCategory = route.params?.category || 'car';
   const isEditing = !!editingId;
+  const { isPremium } = usePremium();
 
   const [name, setName] = useState('');
   const [category, setCategory] = useState<AssetCategory>(initialCategory);
@@ -88,6 +90,24 @@ export default function AddAssetScreen({ navigation, route }: Props) {
     setLoading(true);
 
     try {
+      // Check asset limit for free users when adding (not editing)
+      if (!isEditing && !isPremium) {
+        const existingAssets = await getAssets();
+        if (existingAssets.length >= FREE_ASSET_LIMIT) {
+          setLoading(false);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          Alert.alert(
+            'Asset Limit Reached',
+            `Free accounts can track up to ${FREE_ASSET_LIMIT} assets. Upgrade to Premium for unlimited assets.`,
+            [
+              { text: 'Maybe Later', style: 'cancel' },
+              { text: 'Upgrade', onPress: () => navigation.navigate('Upgrade', { feature: 'Unlimited Assets' }) }
+            ]
+          );
+          return;
+        }
+      }
+
       const now = Date.now();
       const newId = editingId || `${now}-${Math.random().toString(36).substr(2, 9)}`;
 
