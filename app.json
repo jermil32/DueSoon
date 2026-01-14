@@ -4,11 +4,11 @@
     "slug": "DueSoon",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/duesoon-shield.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/duesoon-shield.png",
       "resizeMode": "contain",
       "backgroundColor": "#FF6B35"
     },
@@ -22,7 +22,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/duesoon-shield.png",
         "backgroundColor": "#FF6B35"
       },
       "edgeToEdgeEnabled": true,
@@ -50,7 +50,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "91e876f3-fc98-4997-9114-7c65d87e35cc"
       }
     }
   }
