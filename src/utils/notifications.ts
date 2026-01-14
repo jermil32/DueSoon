@@ -3,6 +3,17 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { MaintenanceTask, Asset } from '../types';
 
+// Notification action identifiers
+export const NOTIFICATION_ACTIONS = {
+  REMIND_TOMORROW: 'REMIND_TOMORROW',
+  REMIND_3_DAYS: 'REMIND_3_DAYS',
+  REMIND_1_WEEK: 'REMIND_1_WEEK',
+  GOT_IT: 'GOT_IT',
+};
+
+// Notification category identifier
+export const MAINTENANCE_CATEGORY = 'MAINTENANCE_REMINDER';
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -12,6 +23,40 @@ Notifications.setNotificationHandler({
     shouldShowList: true,
   }),
 });
+
+// Set up notification categories with action buttons
+export async function setupNotificationCategories(): Promise<void> {
+  await Notifications.setNotificationCategoryAsync(MAINTENANCE_CATEGORY, [
+    {
+      identifier: NOTIFICATION_ACTIONS.REMIND_TOMORROW,
+      buttonTitle: 'Remind Tomorrow',
+      options: {
+        opensAppToForeground: false,
+      },
+    },
+    {
+      identifier: NOTIFICATION_ACTIONS.REMIND_3_DAYS,
+      buttonTitle: 'Remind in 3 Days',
+      options: {
+        opensAppToForeground: false,
+      },
+    },
+    {
+      identifier: NOTIFICATION_ACTIONS.REMIND_1_WEEK,
+      buttonTitle: 'Remind in 1 Week',
+      options: {
+        opensAppToForeground: false,
+      },
+    },
+    {
+      identifier: NOTIFICATION_ACTIONS.GOT_IT,
+      buttonTitle: 'Got It',
+      options: {
+        opensAppToForeground: false,
+      },
+    },
+  ]);
+}
 
 export async function requestNotificationPermissions(): Promise<boolean> {
   if (!Device.isDevice) {
@@ -45,35 +90,81 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 
 export async function scheduleTaskNotification(
   task: MaintenanceTask,
-  asset: Asset
+  asset: Asset,
+  reminderHour: number = 9,
+  reminderMinute: number = 0
 ): Promise<string | null> {
   if (!task.nextDue) return null;
 
-  // Cancel existing notification for this task
-  if (task.notificationId) {
-    await cancelNotification(task.notificationId);
-  }
+  try {
+    // Cancel existing notification for this task
+    if (task.notificationId) {
+      await cancelNotification(task.notificationId);
+    }
 
-  // Calculate notification date (reminderDaysBefore days before due)
-  const notificationDate = new Date(task.nextDue);
-  notificationDate.setDate(notificationDate.getDate() - task.reminderDaysBefore);
-  notificationDate.setHours(9, 0, 0, 0); // 9 AM
+    // Calculate notification date (reminderDaysBefore days before due)
+    // Use millisecond math to avoid month boundary issues with setDate()
+    const millisecondsPerDay = 24 * 60 * 60 * 1000;
+    const reminderOffset = task.reminderDaysBefore * millisecondsPerDay;
+    const notificationDate = new Date(task.nextDue - reminderOffset);
+    notificationDate.setHours(reminderHour, reminderMinute, 0, 0);
 
-  // Don't schedule if the notification date is in the past
-  if (notificationDate.getTime() <= Date.now()) {
+    // Don't schedule if the notification date is in the past
+    if (notificationDate.getTime() <= Date.now()) {
+      return null;
+    }
+
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Maintenance Due Soon',
+        body: `${task.name} for ${asset.name} is due in ${task.reminderDaysBefore} days`,
+        data: { taskId: task.id, assetId: asset.id, assetName: asset.name, taskName: task.name },
+        sound: true,
+        categoryIdentifier: MAINTENANCE_CATEGORY,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: notificationDate,
+      },
+    });
+
+    return identifier;
+  } catch (error) {
+    console.error('Failed to schedule notification:', error);
     return null;
+  }
+}
+
+// Schedule a snooze reminder for a specific number of days from now
+export async function scheduleSnoozeNotification(
+  taskId: string,
+  assetId: string,
+  taskName: string,
+  assetName: string,
+  snoozeDays: number,
+  reminderHour: number = 9,
+  reminderMinute: number = 0
+): Promise<string> {
+  const snoozeDate = new Date();
+  snoozeDate.setDate(snoozeDate.getDate() + snoozeDays);
+  snoozeDate.setHours(reminderHour, reminderMinute, 0, 0);
+
+  // If snooze time is in the past, set it for tomorrow
+  if (snoozeDate.getTime() <= Date.now()) {
+    snoozeDate.setDate(snoozeDate.getDate() + 1);
   }
 
   const identifier = await Notifications.scheduleNotificationAsync({
     content: {
-      title: 'Maintenance Due Soon',
-      body: `${task.name} for ${asset.name} is due in ${task.reminderDaysBefore} days`,
-      data: { taskId: task.id, assetId: asset.id },
+      title: 'Maintenance Reminder',
+      body: `${taskName} for ${assetName} needs attention`,
+      data: { taskId, assetId, assetName, taskName },
       sound: true,
+      categoryIdentifier: MAINTENANCE_CATEGORY,
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
-      date: notificationDate,
+      date: snoozeDate,
     },
   });
 

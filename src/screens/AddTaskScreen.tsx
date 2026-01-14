@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { RootStackScreenProps } from '../navigation/types';
 import { MaintenanceTask, MaintenanceInterval, Asset } from '../types';
 import { addTask, getTasks, updateTask, getAssets } from '../storage';
@@ -37,6 +38,9 @@ export default function AddTaskScreen({ navigation, route }: Props) {
   const [intervalType, setIntervalType] = useState<MaintenanceInterval['type']>('months');
   const [intervalValue, setIntervalValue] = useState('');
   const [reminderDays, setReminderDays] = useState('7');
+  const [filterPartNumber, setFilterPartNumber] = useState('');
+  const [fluidType, setFluidType] = useState('');
+  const [fluidCapacity, setFluidCapacity] = useState('');
   const [loading, setLoading] = useState(false);
   const [showTemplates, setShowTemplates] = useState(!isEditing);
 
@@ -58,6 +62,9 @@ export default function AddTaskScreen({ navigation, route }: Props) {
         setIntervalType(task.interval.type);
         setIntervalValue(task.interval.value.toString());
         setReminderDays(task.reminderDaysBefore.toString());
+        setFilterPartNumber(task.filterPartNumber || '');
+        setFluidType(task.fluidType || '');
+        setFluidCapacity(task.fluidCapacity || '');
       }
     }
   };
@@ -112,6 +119,9 @@ export default function AddTaskScreen({ navigation, route }: Props) {
         description: description.trim() || undefined,
         interval,
         reminderDaysBefore: reminder,
+        filterPartNumber: filterPartNumber.trim() || undefined,
+        fluidType: fluidType.trim() || undefined,
+        fluidCapacity: fluidCapacity.trim() || undefined,
         createdAt: isEditing ? now : now,
         updatedAt: now,
       };
@@ -126,11 +136,17 @@ export default function AddTaskScreen({ navigation, route }: Props) {
           task.lastHours = existingTask.lastHours;
           task.nextDue = existingTask.lastCompleted
             ? calculateNextDueDate(existingTask.lastCompleted, interval)
-            : undefined;
+            : existingTask.nextDue;
           task.notificationId = existingTask.notificationId;
+          task.createdAt = existingTask.createdAt;
         }
         await updateTask(task);
       } else {
+        // For new tasks, calculate initial nextDue based on current date + interval
+        // This ensures notifications can be scheduled for new tasks
+        if (interval.type === 'days' || interval.type === 'months' || interval.type === 'years') {
+          task.nextDue = calculateNextDueDate(Date.now(), interval);
+        }
         await addTask(task);
       }
 
@@ -144,10 +160,22 @@ export default function AddTaskScreen({ navigation, route }: Props) {
             await updateTask(task);
           }
         }
+      } else if (!task.nextDue && asset) {
+        // Show feedback that notification couldn't be scheduled for usage-based intervals
+        if (interval.type === 'miles' || interval.type === 'hours') {
+          Alert.alert(
+            'Task Added',
+            'This is a usage-based task. Log your first maintenance to set a reminder date.'
+          );
+        }
       }
+
+      // Success feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       navigation.goBack();
     } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', 'Failed to save task. Please try again.');
     } finally {
       setLoading(false);
@@ -257,6 +285,48 @@ export default function AddTaskScreen({ navigation, route }: Props) {
                 keyboardType="number-pad"
               />
             </View>
+
+            {/* Fluid change specific fields - show for oil/transmission fluid tasks */}
+            {(name.toLowerCase().includes('oil') ||
+              name.toLowerCase().includes('fluid') ||
+              name.toLowerCase().includes('transmission')) && (
+              <View style={styles.fluidSection}>
+                <Text style={styles.fluidSectionTitle}>Fluid Change Details</Text>
+
+                <View style={styles.field}>
+                  <Text style={styles.label}>Filter Part Number</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={filterPartNumber}
+                    onChangeText={setFilterPartNumber}
+                    placeholder="e.g., PH3614"
+                    placeholderTextColor={COLORS.textLight}
+                  />
+                </View>
+
+                <View style={styles.field}>
+                  <Text style={styles.label}>Fluid Type</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={fluidType}
+                    onChangeText={setFluidType}
+                    placeholder="e.g., 5W-30, Dexron VI"
+                    placeholderTextColor={COLORS.textLight}
+                  />
+                </View>
+
+                <View style={styles.field}>
+                  <Text style={styles.label}>Capacity</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={fluidCapacity}
+                    onChangeText={setFluidCapacity}
+                    placeholder="e.g., 5 quarts"
+                    placeholderTextColor={COLORS.textLight}
+                  />
+                </View>
+              </View>
+            )}
 
             {templates.length > 0 && (
               <TouchableOpacity
@@ -403,6 +473,20 @@ const styles = StyleSheet.create({
   showTemplatesText: {
     color: COLORS.secondary,
     fontWeight: '500',
+  },
+  fluidSection: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.primaryLight,
+  },
+  fluidSectionTitle: {
+    fontSize: FONT_SIZE.md,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginBottom: SPACING.md,
   },
   footer: {
     flexDirection: 'row',

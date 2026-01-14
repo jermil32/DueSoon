@@ -30,7 +30,8 @@ export function getDaysUntilDue(dueDate: number): number {
   now.setHours(0, 0, 0, 0);
   const due = new Date(dueDate);
   due.setHours(0, 0, 0, 0);
-  return Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  // Use Math.round to handle timezone edge cases more accurately
+  return Math.round((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 export function formatDate(timestamp: number): string {

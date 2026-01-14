@@ -22,20 +22,35 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
   const [asset, setAsset] = useState<Asset | null>(null);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-    const [assets, assetTasks] = await Promise.all([
-      getAssets(),
-      getTasksForAsset(assetId),
-    ]);
-    const foundAsset = assets.find((a) => a.id === assetId);
-    setAsset(foundAsset || null);
-    setTasks(assetTasks.sort((a, b) => {
-      if (!a.nextDue && !b.nextDue) return 0;
-      if (!a.nextDue) return 1;
-      if (!b.nextDue) return -1;
-      return a.nextDue - b.nextDue;
-    }));
+    try {
+      setError(null);
+      const [assets, assetTasks] = await Promise.all([
+        getAssets(),
+        getTasksForAsset(assetId),
+      ]);
+      const foundAsset = assets.find((a) => a.id === assetId);
+      if (!foundAsset) {
+        setError('Asset not found');
+        setAsset(null);
+      } else {
+        setAsset(foundAsset);
+        setTasks(assetTasks.sort((a, b) => {
+          if (!a.nextDue && !b.nextDue) return 0;
+          if (!a.nextDue) return 1;
+          if (!b.nextDue) return -1;
+          return a.nextDue - b.nextDue;
+        }));
+      }
+    } catch (err) {
+      setError('Failed to load asset data. Please try again.');
+      console.error('Error loading asset:', err);
+    } finally {
+      setLoading(false);
+    }
   }, [assetId]);
 
   useFocusEffect(
@@ -112,10 +127,26 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
     );
   };
 
-  if (!asset) {
+  if (loading) {
     return (
       <View style={styles.container}>
         <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
+
+  if (error || !asset) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error || 'Asset not found'}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadData}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -153,12 +184,16 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
               <TouchableOpacity
                 style={styles.editButton}
                 onPress={() => navigation.navigate('AddAsset', { assetId: asset.id })}
+                accessibilityLabel={`Edit ${asset.name}`}
+                accessibilityRole="button"
               >
                 <Text style={styles.editButtonText}>Edit</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.deleteButton}
                 onPress={handleDelete}
+                accessibilityLabel={`Delete ${asset.name}`}
+                accessibilityRole="button"
               >
                 <Text style={styles.deleteButtonText}>Delete</Text>
               </TouchableOpacity>
@@ -182,6 +217,8 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
       <TouchableOpacity
         style={styles.fab}
         onPress={() => navigation.navigate('AddTask', { assetId: asset.id })}
+        accessibilityLabel="Add maintenance task"
+        accessibilityRole="button"
       >
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
@@ -201,6 +238,38 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: SPACING.xl,
     color: COLORS.textSecondary,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.xl,
+  },
+  errorText: {
+    fontSize: FONT_SIZE.lg,
+    color: COLORS.danger,
+    textAlign: 'center',
+    marginBottom: SPACING.lg,
+  },
+  retryButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderRadius: 8,
+    marginBottom: SPACING.md,
+  },
+  retryButtonText: {
+    color: COLORS.surface,
+    fontSize: FONT_SIZE.md,
+    fontWeight: '600',
+  },
+  backButton: {
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+  },
+  backButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: FONT_SIZE.md,
   },
   header: {
     backgroundColor: COLORS.surface,

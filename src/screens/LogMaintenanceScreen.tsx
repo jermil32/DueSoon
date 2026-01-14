@@ -11,9 +11,10 @@ import {
   Platform,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Haptics from 'expo-haptics';
 import { RootStackScreenProps } from '../navigation/types';
 import { MaintenanceTask, MaintenanceLog, Asset } from '../types';
-import { getTasks, updateTask, addLog, getAssets } from '../storage';
+import { getTasks, updateTask, addLog, updateLog, getLogById, getAssets } from '../storage';
 import { calculateNextDueDate, formatDate } from '../utils/dates';
 import { scheduleTaskNotification, requestNotificationPermissions } from '../utils/notifications';
 import { COLORS, SPACING, FONT_SIZE } from '../utils/constants';
@@ -21,12 +22,17 @@ import { COLORS, SPACING, FONT_SIZE } from '../utils/constants';
 type Props = RootStackScreenProps<'LogMaintenance'>;
 
 export default function LogMaintenanceScreen({ navigation, route }: Props) {
-  const { taskId } = route.params;
+  const { taskId, logId } = route.params;
+  const isEditing = !!logId;
 
   const [task, setTask] = useState<MaintenanceTask | null>(null);
   const [asset, setAsset] = useState<Asset | null>(null);
+  const [existingLog, setExistingLog] = useState<MaintenanceLog | null>(null);
   const [completedDate, setCompletedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [nextDueDate, setNextDueDate] = useState<Date | null>(null);
+  const [showNextDuePicker, setShowNextDuePicker] = useState(false);
+  const [useCustomNextDue, setUseCustomNextDue] = useState(false);
   const [estimatedMonths, setEstimatedMonths] = useState('');
   const [mileage, setMileage] = useState('');
   const [hours, setHours] = useState('');
@@ -38,6 +44,12 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
     loadData();
   }, []);
 
+  useEffect(() => {
+    navigation.setOptions({
+      title: isEditing ? 'Edit Maintenance Log' : 'Log Maintenance',
+    });
+  }, [navigation, isEditing]);
+
   const loadData = async () => {
     const [tasks, assets] = await Promise.all([getTasks(), getAssets()]);
     const foundTask = tasks.find((t) => t.id === taskId);
@@ -45,11 +57,26 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
     if (foundTask) {
       const foundAsset = assets.find((a) => a.id === foundTask.assetId);
       setAsset(foundAsset || null);
-      if (foundTask.lastMileage) {
-        setMileage(foundTask.lastMileage.toString());
-      }
-      if (foundTask.lastHours) {
-        setHours(foundTask.lastHours.toString());
+
+      // If editing, load existing log data
+      if (logId) {
+        const log = await getLogById(logId);
+        if (log) {
+          setExistingLog(log);
+          setCompletedDate(new Date(log.completedAt));
+          if (log.mileage) setMileage(log.mileage.toString());
+          if (log.hours) setHours(log.hours.toString());
+          if (log.cost) setCost(log.cost.toString());
+          if (log.notes) setNotes(log.notes);
+        }
+      } else {
+        // New log - prefill with last values
+        if (foundTask.lastMileage) {
+          setMileage(foundTask.lastMileage.toString());
+        }
+        if (foundTask.lastHours) {
+          setHours(foundTask.lastHours.toString());
+        }
       }
     }
   };
@@ -63,9 +90,55 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
     }
   };
 
+  const onNextDueDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowNextDuePicker(false);
+    }
+    if (selectedDate) {
+      setNextDueDate(selectedDate);
+      setUseCustomNextDue(true);
+    }
+  };
+
+  const getCalculatedNextDue = (): number | undefined => {
+    if (!task) return undefined;
+    const completedAt = completedDate.getTime();
+
+    // For time-based intervals, calculate directly
+    if (task.interval.type === 'days' || task.interval.type === 'months' || task.interval.type === 'years') {
+      return calculateNextDueDate(completedAt, task.interval);
+    }
+
+    // For miles/hours, use estimated months if provided
+    const estMonths = estimatedMonths ? parseInt(estimatedMonths.trim(), 10) : NaN;
+    if ((task.interval.type === 'miles' || task.interval.type === 'hours') && !isNaN(estMonths) && estMonths > 0) {
+      const estDate = new Date(completedAt);
+      estDate.setMonth(estDate.getMonth() + estMonths);
+      return estDate.getTime();
+    }
+
+    return undefined;
+  };
+
+  // Helper function to safely parse integers
+  const safeParseInt = (value: string): number | undefined => {
+    if (!value || value.trim() === '') return undefined;
+    const parsed = parseInt(value.trim(), 10);
+    return isNaN(parsed) ? undefined : parsed;
+  };
+
+  // Helper function to safely parse floats
+  const safeParseFloat = (value: string): number | undefined => {
+    if (!value || value.trim() === '') return undefined;
+    const parsed = parseFloat(value.trim());
+    return isNaN(parsed) ? undefined : parsed;
+  };
 
   const handleSave = async () => {
-    if (!task || !asset) return;
+    if (!task || !asset) {
+      Alert.alert('Error', 'Unable to save. Please try again.');
+      return;
+    }
 
     setLoading(true);
 
@@ -73,44 +146,63 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
       const now = Date.now();
       const completedAt = completedDate.getTime();
 
+      // Validate numeric inputs
+      const parsedMileage = safeParseInt(mileage);
+      const parsedHours = safeParseInt(hours);
+      const parsedCost = safeParseFloat(cost);
+
       const log: MaintenanceLog = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: isEditing && existingLog ? existingLog.id : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         taskId: task.id,
         assetId: task.assetId,
         completedAt,
-        mileage: mileage ? parseInt(mileage, 10) : undefined,
-        hours: hours ? parseInt(hours, 10) : undefined,
-        cost: cost ? parseFloat(cost) : undefined,
+        mileage: parsedMileage,
+        hours: parsedHours,
+        cost: parsedCost,
         notes: notes.trim() || undefined,
-        createdAt: now,
+        createdAt: isEditing && existingLog ? existingLog.createdAt : now,
       };
 
-      await addLog(log);
+      if (isEditing) {
+        await updateLog(log);
+      } else {
+        await addLog(log);
+      }
+
+      // Determine next due date
+      let nextDue: number | undefined;
+      if (useCustomNextDue && nextDueDate) {
+        nextDue = nextDueDate.getTime();
+      } else {
+        nextDue = calculateNextDueDate(completedAt, task.interval);
+      }
 
       const updatedTask: MaintenanceTask = {
         ...task,
         lastCompleted: completedAt,
         lastMileage: log.mileage,
         lastHours: log.hours,
-        nextDue: calculateNextDueDate(completedAt, task.interval),
+        nextDue,
         updatedAt: now,
       };
 
-      if (task.interval.type === 'miles' && log.mileage) {
-        updatedTask.nextDueMileage = log.mileage + task.interval.value;
-        // Calculate estimated date from months input
-        if (estimatedMonths && parseInt(estimatedMonths, 10) > 0) {
+      const parsedEstimatedMonths = safeParseInt(estimatedMonths);
+
+      if (task.interval.type === 'miles' && parsedMileage) {
+        updatedTask.nextDueMileage = parsedMileage + task.interval.value;
+        // Use custom date if set, otherwise use estimated months
+        if (!useCustomNextDue && parsedEstimatedMonths && parsedEstimatedMonths > 0) {
           const estDate = new Date(completedAt);
-          estDate.setMonth(estDate.getMonth() + parseInt(estimatedMonths, 10));
+          estDate.setMonth(estDate.getMonth() + parsedEstimatedMonths);
           updatedTask.nextDue = estDate.getTime();
         }
       }
-      if (task.interval.type === 'hours' && log.hours) {
-        updatedTask.nextDueHours = log.hours + task.interval.value;
-        // Calculate estimated date from months input
-        if (estimatedMonths && parseInt(estimatedMonths, 10) > 0) {
+      if (task.interval.type === 'hours' && parsedHours) {
+        updatedTask.nextDueHours = parsedHours + task.interval.value;
+        // Use custom date if set, otherwise use estimated months
+        if (!useCustomNextDue && parsedEstimatedMonths && parsedEstimatedMonths > 0) {
           const estDate = new Date(completedAt);
-          estDate.setMonth(estDate.getMonth() + parseInt(estimatedMonths, 10));
+          estDate.setMonth(estDate.getMonth() + parsedEstimatedMonths);
           updatedTask.nextDue = estDate.getTime();
         }
       }
@@ -128,8 +220,12 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
         }
       }
 
+      // Success feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
       navigation.goBack();
     } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', 'Failed to log maintenance. Please try again.');
     } finally {
       setLoading(false);
@@ -247,8 +343,8 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
             <Text style={styles.label}>Remind me in how many months?</Text>
             <Text style={styles.hint}>
               Next service at {task.interval.type === 'miles'
-                ? `${((mileage ? parseInt(mileage, 10) : 0) + task.interval.value).toLocaleString()} miles`
-                : `${((hours ? parseInt(hours, 10) : 0) + task.interval.value).toLocaleString()} hours`
+                ? `${((parseInt(mileage, 10) || 0) + task.interval.value).toLocaleString()} miles`
+                : `${((parseInt(hours, 10) || 0) + task.interval.value).toLocaleString()} hours`
               }
             </Text>
             <TextInput
@@ -259,12 +355,14 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
               placeholderTextColor={COLORS.textLight}
               keyboardType="number-pad"
             />
-            {estimatedMonths && parseInt(estimatedMonths, 10) > 0 && (
+            {estimatedMonths && (parseInt(estimatedMonths, 10) || 0) > 0 && (
               <Text style={styles.hint}>
                 Reminder will be set for {formatDate(
-                  new Date(completedDate.getTime()).setMonth(
-                    completedDate.getMonth() + parseInt(estimatedMonths, 10)
-                  )
+                  (() => {
+                    const estDate = new Date(completedDate.getTime());
+                    estDate.setMonth(estDate.getMonth() + (parseInt(estimatedMonths, 10) || 0));
+                    return estDate.getTime();
+                  })()
                 )}
               </Text>
             )}
@@ -295,6 +393,75 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
             numberOfLines={3}
           />
         </View>
+
+        {/* Next Due Date */}
+        <View style={styles.field}>
+          <Text style={styles.label}>Next Due Date</Text>
+          {!useCustomNextDue ? (
+            <>
+              <View style={styles.calculatedDate}>
+                <Text style={styles.calculatedDateText}>
+                  {getCalculatedNextDue()
+                    ? `Calculated: ${formatDate(getCalculatedNextDue()!)}`
+                    : 'Will be calculated based on interval'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.customDateButton}
+                onPress={() => {
+                  const calculated = getCalculatedNextDue();
+                  setNextDueDate(calculated ? new Date(calculated) : new Date());
+                  setShowNextDuePicker(true);
+                }}
+              >
+                <Text style={styles.customDateButtonText}>Set Custom Date</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => setShowNextDuePicker(true)}
+              >
+                <Text style={styles.dateButtonText}>
+                  {nextDueDate ? formatDate(nextDueDate.getTime()) : 'Select date'}
+                </Text>
+                <Text style={styles.changeText}>Change</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.resetDateButton}
+                onPress={() => {
+                  setUseCustomNextDue(false);
+                  setNextDueDate(null);
+                }}
+              >
+                <Text style={styles.resetDateButtonText}>Use Calculated Date</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+
+        {/* Next Due Date Picker */}
+        {showNextDuePicker && (
+          <View style={styles.datePickerContainer}>
+            <DateTimePicker
+              value={nextDueDate || new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'inline' : 'default'}
+              onChange={onNextDueDateChange}
+              minimumDate={new Date()}
+              style={styles.datePicker}
+            />
+            {Platform.OS === 'ios' && (
+              <TouchableOpacity
+                style={styles.datePickerDone}
+                onPress={() => setShowNextDuePicker(false)}
+              >
+                <Text style={styles.datePickerDoneText}>Done</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -310,7 +477,7 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
           disabled={loading}
         >
           <Text style={styles.saveButtonText}>
-            {loading ? 'Saving...' : 'Log Maintenance'}
+            {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Log Maintenance'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -456,5 +623,35 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.lg,
     color: COLORS.surface,
     fontWeight: '600',
+  },
+  calculatedDate: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    padding: SPACING.md,
+  },
+  calculatedDateText: {
+    fontSize: FONT_SIZE.md,
+    color: COLORS.textSecondary,
+  },
+  customDateButton: {
+    marginTop: SPACING.sm,
+    padding: SPACING.sm,
+    alignItems: 'center',
+  },
+  customDateButtonText: {
+    fontSize: FONT_SIZE.md,
+    color: COLORS.primary,
+    fontWeight: '500',
+  },
+  resetDateButton: {
+    marginTop: SPACING.sm,
+    padding: SPACING.sm,
+    alignItems: 'center',
+  },
+  resetDateButtonText: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textSecondary,
   },
 });

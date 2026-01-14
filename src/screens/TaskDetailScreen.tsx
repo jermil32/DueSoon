@@ -7,12 +7,14 @@ import {
   Alert,
   ScrollView,
   FlatList,
+  Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useFocusEffect } from '@react-navigation/native';
 import { RootStackScreenProps } from '../navigation/types';
 import { MaintenanceTask, Asset, MaintenanceLog } from '../types';
-import { getTasks, getAssets, deleteTask, getLogsForTask } from '../storage';
-import { cancelNotification } from '../utils/notifications';
+import { getTasks, getAssets, deleteTask, getLogsForTask, updateTask } from '../storage';
+import { cancelNotification, scheduleTaskNotification, requestNotificationPermissions } from '../utils/notifications';
 import {
   getTaskStatus,
   formatDate,
@@ -28,20 +30,39 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
   const [task, setTask] = useState<MaintenanceTask | null>(null);
   const [asset, setAsset] = useState<Asset | null>(null);
   const [logs, setLogs] = useState<MaintenanceLog[]>([]);
+  const [showDueDatePicker, setShowDueDatePicker] = useState(false);
+  const [selectedDueDate, setSelectedDueDate] = useState<Date>(new Date());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-    const [tasks, assets, taskLogs] = await Promise.all([
-      getTasks(),
-      getAssets(),
-      getLogsForTask(taskId),
-    ]);
-    const foundTask = tasks.find((t) => t.id === taskId);
-    setTask(foundTask || null);
-    if (foundTask) {
-      const foundAsset = assets.find((a) => a.id === foundTask.assetId);
-      setAsset(foundAsset || null);
+    try {
+      setError(null);
+      const [tasks, assets, taskLogs] = await Promise.all([
+        getTasks(),
+        getAssets(),
+        getLogsForTask(taskId),
+      ]);
+      const foundTask = tasks.find((t) => t.id === taskId);
+      if (!foundTask) {
+        setError('Task not found');
+        setTask(null);
+        setAsset(null);
+      } else {
+        setTask(foundTask);
+        const foundAsset = assets.find((a) => a.id === foundTask.assetId);
+        if (!foundAsset) {
+          setError('Associated asset not found');
+        }
+        setAsset(foundAsset || null);
+      }
+      setLogs(taskLogs);
+    } catch (err) {
+      setError('Failed to load task data. Please try again.');
+      console.error('Error loading task:', err);
+    } finally {
+      setLoading(false);
     }
-    setLogs(taskLogs);
   }, [taskId]);
 
   useFocusEffect(
@@ -93,8 +114,57 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
     return `Due in ${days} days`;
   };
 
+  const handleEditLog = (log: MaintenanceLog) => {
+    navigation.navigate('LogMaintenance', { taskId: log.taskId, logId: log.id });
+  };
+
+  const handleChangeDueDate = () => {
+    if (task?.nextDue) {
+      setSelectedDueDate(new Date(task.nextDue));
+    } else {
+      setSelectedDueDate(new Date());
+    }
+    setShowDueDatePicker(true);
+  };
+
+  const onDueDateChange = async (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowDueDatePicker(false);
+    }
+    if (selectedDate && task && asset) {
+      setSelectedDueDate(selectedDate);
+
+      const updatedTask: MaintenanceTask = {
+        ...task,
+        nextDue: selectedDate.getTime(),
+        updatedAt: Date.now(),
+      };
+
+      await updateTask(updatedTask);
+
+      // Reschedule notification
+      if (task.notificationId) {
+        await cancelNotification(task.notificationId);
+      }
+      const hasPermission = await requestNotificationPermissions();
+      if (hasPermission) {
+        const notificationId = await scheduleTaskNotification(updatedTask, asset);
+        if (notificationId) {
+          updatedTask.notificationId = notificationId;
+          await updateTask(updatedTask);
+        }
+      }
+
+      setTask(updatedTask);
+    }
+  };
+
   const renderLogItem = ({ item }: { item: MaintenanceLog }) => (
-    <View style={styles.logItem}>
+    <TouchableOpacity
+      style={styles.logItem}
+      onPress={() => handleEditLog(item)}
+      activeOpacity={0.7}
+    >
       <View style={styles.logDot} />
       <View style={styles.logContent}>
         <Text style={styles.logDate}>{formatDate(item.completedAt)}</Text>
@@ -111,13 +181,30 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
         )}
         {item.notes && <Text style={styles.logNotes}>{item.notes}</Text>}
       </View>
-    </View>
+      <Text style={styles.editHint}>Tap to edit</Text>
+    </TouchableOpacity>
   );
 
-  if (!task || !asset) {
+  if (loading) {
     return (
       <View style={styles.container}>
         <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
+
+  if (error || !task || !asset) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error || 'Task not found'}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadData}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -152,10 +239,34 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
             <Text style={styles.infoValue}>{formatInterval(task.interval)}</Text>
           </View>
 
-          {task.nextDue && (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Next Due</Text>
-              <Text style={styles.infoValue}>{formatDate(task.nextDue)}</Text>
+          <TouchableOpacity style={styles.infoRow} onPress={handleChangeDueDate}>
+            <Text style={styles.infoLabel}>Next Due</Text>
+            <View style={styles.dueDateValue}>
+              <Text style={styles.infoValue}>
+                {task.nextDue ? formatDate(task.nextDue) : 'Not set'}
+              </Text>
+              <Text style={styles.changeHint}>Change</Text>
+            </View>
+          </TouchableOpacity>
+
+          {showDueDatePicker && (
+            <View style={styles.datePickerContainer}>
+              <DateTimePicker
+                value={selectedDueDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                onChange={onDueDateChange}
+                minimumDate={new Date()}
+                style={styles.datePicker}
+              />
+              {Platform.OS === 'ios' && (
+                <TouchableOpacity
+                  style={styles.datePickerDone}
+                  onPress={() => setShowDueDatePicker(false)}
+                >
+                  <Text style={styles.datePickerDoneText}>Done</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -172,11 +283,37 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
               {task.reminderDaysBefore} days before due
             </Text>
           </View>
+
+          {/* Fluid change details */}
+          {(task.filterPartNumber || task.fluidType || task.fluidCapacity) && (
+            <>
+              {task.filterPartNumber && (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Filter Part #</Text>
+                  <Text style={styles.infoValue}>{task.filterPartNumber}</Text>
+                </View>
+              )}
+              {task.fluidType && (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Fluid Type</Text>
+                  <Text style={styles.infoValue}>{task.fluidType}</Text>
+                </View>
+              )}
+              {task.fluidCapacity && (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Capacity</Text>
+                  <Text style={styles.infoValue}>{task.fluidCapacity}</Text>
+                </View>
+              )}
+            </>
+          )}
         </View>
 
         <TouchableOpacity
           style={styles.logMaintenanceButton}
           onPress={() => navigation.navigate('LogMaintenance', { taskId: task.id })}
+          accessibilityLabel={`Log maintenance for ${task.name}`}
+          accessibilityRole="button"
         >
           <Text style={styles.logMaintenanceButtonText}>Log Maintenance</Text>
         </TouchableOpacity>
@@ -203,10 +340,17 @@ export default function TaskDetailScreen({ navigation, route }: Props) {
           onPress={() =>
             navigation.navigate('AddTask', { assetId: asset.id, taskId: task.id })
           }
+          accessibilityLabel={`Edit ${task.name}`}
+          accessibilityRole="button"
         >
           <Text style={styles.editButtonText}>Edit Task</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={handleDelete}
+          accessibilityLabel={`Delete ${task.name}`}
+          accessibilityRole="button"
+        >
           <Text style={styles.deleteButtonText}>Delete</Text>
         </TouchableOpacity>
       </View>
@@ -226,6 +370,38 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: SPACING.xl,
     color: COLORS.textSecondary,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.xl,
+  },
+  errorText: {
+    fontSize: FONT_SIZE.lg,
+    color: COLORS.danger,
+    textAlign: 'center',
+    marginBottom: SPACING.lg,
+  },
+  retryButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderRadius: 8,
+    marginBottom: SPACING.md,
+  },
+  retryButtonText: {
+    color: COLORS.surface,
+    fontSize: FONT_SIZE.md,
+    fontWeight: '600',
+  },
+  backButton: {
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+  },
+  backButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: FONT_SIZE.md,
   },
   header: {
     backgroundColor: COLORS.surface,
@@ -282,6 +458,36 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.md,
     color: COLORS.text,
     fontWeight: '500',
+  },
+  dueDateValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  changeHint: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.primary,
+  },
+  datePickerContainer: {
+    backgroundColor: COLORS.background,
+    borderRadius: 12,
+    marginVertical: SPACING.sm,
+    padding: SPACING.md,
+  },
+  datePicker: {
+    height: 320,
+  },
+  datePickerDone: {
+    alignItems: 'center',
+    padding: SPACING.md,
+    marginTop: SPACING.sm,
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+  },
+  datePickerDoneText: {
+    color: COLORS.surface,
+    fontSize: FONT_SIZE.md,
+    fontWeight: '600',
   },
   logMaintenanceButton: {
     backgroundColor: COLORS.success,
@@ -345,6 +551,11 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginTop: SPACING.xs,
     fontStyle: 'italic',
+  },
+  editHint: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.primary,
+    marginLeft: 'auto',
   },
   footer: {
     flexDirection: 'row',
