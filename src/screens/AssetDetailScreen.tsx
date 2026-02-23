@@ -9,35 +9,42 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { RootStackScreenProps } from '../navigation/types';
-import { Asset, MaintenanceTask, MaintenanceLog } from '../types';
-import { getAssets, getTasksForAsset, deleteAsset, getLogsForAsset } from '../storage';
+import { Asset, MaintenanceTask, MaintenanceLog, AssetClass } from '../types';
+import { getAssets, getTasksForAsset, deleteAsset, getLogsForAsset, getAssetClasses } from '../storage';
 import { getTaskStatus, formatDate, getDaysUntilDue, formatInterval } from '../utils/dates';
-import { COLORS, SPACING, FONT_SIZE, CATEGORY_LABELS } from '../utils/constants';
+import { COLORS, SPACING, FONT_SIZE } from '../utils/constants';
 import { generateServiceHistoryPDF } from '../utils/pdfExport';
 import { usePremium } from '../context/PremiumContext';
+import { useTutorial } from '../context/TutorialContext';
 
 type Props = RootStackScreenProps<'AssetDetail'>;
 
 export default function AssetDetailScreen({ navigation, route }: Props) {
   const { assetId } = route.params;
+  const insets = useSafeAreaInsets();
   const { isPremium } = usePremium();
+  const { showTutorial } = useTutorial();
   const [asset, setAsset] = useState<Asset | null>(null);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [logs, setLogs] = useState<MaintenanceLog[]>([]);
+  const [categoryLabel, setCategoryLabel] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [hasShownTutorial, setHasShownTutorial] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
       setError(null);
-      const [assets, assetTasks, assetLogs] = await Promise.all([
+      const [assets, assetTasks, assetLogs, assetClasses] = await Promise.all([
         getAssets(),
         getTasksForAsset(assetId),
         getLogsForAsset(assetId),
+        getAssetClasses(),
       ]);
       const foundAsset = assets.find((a) => a.id === assetId);
       if (!foundAsset) {
@@ -52,6 +59,9 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
           return a.nextDue - b.nextDue;
         }));
         setLogs(assetLogs);
+        // Get category label
+        const assetClass = assetClasses.find(c => c.id === foundAsset.category);
+        setCategoryLabel(assetClass?.label || foundAsset.category);
       }
     } catch (err) {
       setError('Failed to load asset data. Please try again.');
@@ -66,6 +76,14 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
       loadData();
     }, [loadData])
   );
+
+  // Show add task tutorial when asset has no tasks
+  React.useEffect(() => {
+    if (asset && !loading && tasks.length === 0 && !hasShownTutorial) {
+      setHasShownTutorial(true);
+      showTutorial('asset_detail_add_task');
+    }
+  }, [asset, loading, tasks.length, hasShownTutorial, showTutorial]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -110,6 +128,7 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
         asset,
         tasks,
         logs,
+        categoryLabel,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
@@ -207,7 +226,7 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
               </Text>
             </View>
             <Text style={styles.assetName}>{asset.name}</Text>
-            <Text style={styles.assetCategory}>{CATEGORY_LABELS[asset.category]}</Text>
+            <Text style={styles.assetCategory}>{categoryLabel}</Text>
             {asset.make && asset.model && (
               <Text style={styles.assetDetails}>
                 {asset.year ? `${asset.year} ` : ''}
@@ -267,7 +286,7 @@ export default function AssetDetailScreen({ navigation, route }: Props) {
         }
       />
       <TouchableOpacity
-        style={styles.fab}
+        style={[styles.fab, { bottom: Math.max(SPACING.lg, insets.bottom + SPACING.md) }]}
         onPress={() => navigation.navigate('AddTask', { assetId: asset.id })}
         accessibilityLabel="Add maintenance task"
         accessibilityRole="button"
@@ -489,7 +508,6 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: SPACING.lg,
     right: SPACING.lg,
     width: 56,
     height: 56,

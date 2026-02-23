@@ -11,6 +11,8 @@ import {
   Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { RootStackScreenProps } from '../navigation/types';
 import { MaintenanceTask, MaintenanceInterval, Asset } from '../types';
 import { addTask, getTasks, updateTask, getAssets } from '../storage';
@@ -31,6 +33,8 @@ const INTERVAL_TYPES = [
 export default function AddTaskScreen({ navigation, route }: Props) {
   const { assetId, taskId } = route.params;
   const isEditing = !!taskId;
+  const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
 
   const [asset, setAsset] = useState<Asset | null>(null);
   const [name, setName] = useState('');
@@ -182,12 +186,20 @@ export default function AddTaskScreen({ navigation, route }: Props) {
     }
   };
 
-  const templates = asset ? DEFAULT_MAINTENANCE_TEMPLATES[asset.category] : [];
+  const templates = asset ? (DEFAULT_MAINTENANCE_TEMPLATES[asset.category] || []) : [];
+
+  // Auto-hide templates section if no templates available
+  useEffect(() => {
+    if (asset && templates.length === 0 && showTemplates) {
+      setShowTemplates(false);
+    }
+  }, [asset, templates.length, showTemplates]);
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={headerHeight}
     >
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         {showTemplates && templates.length > 0 && (
@@ -341,7 +353,7 @@ export default function AddTaskScreen({ navigation, route }: Props) {
       </ScrollView>
 
       {!showTemplates && (
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: Math.max(SPACING.md, insets.bottom) }]}>
           <TouchableOpacity
             style={styles.cancelButton}
             onPress={() => navigation.goBack()}

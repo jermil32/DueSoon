@@ -1,4 +1,4 @@
-import { AssetCategory, IconOption } from '../types';
+import { AssetCategory, IconOption, AssetClass, BuiltInCategory } from '../types';
 
 export type ColorScheme = {
   primary: string;
@@ -80,7 +80,18 @@ export const FONT_SIZE = {
   title: 32,
 };
 
-export const CATEGORY_LABELS: Record<AssetCategory, string> = {
+// Default asset classes - these are the built-in categories
+export const DEFAULT_ASSET_CLASSES: AssetClass[] = [
+  { id: 'car', label: 'Vehicles', icon: 'car', isBuiltIn: true, order: 0 },
+  { id: 'tractor', label: 'Tractors', icon: 'tractor', isBuiltIn: true, order: 1 },
+  { id: 'atv', label: 'Power Sports', icon: 'atv', isBuiltIn: true, order: 2 },
+  { id: 'lawnmower', label: 'Equipment', icon: 'lawnmower', isBuiltIn: true, order: 3 },
+  { id: 'home', label: 'Homes', icon: 'home', isBuiltIn: true, order: 4 },
+  { id: 'boat', label: 'Watercraft', icon: 'boat', isBuiltIn: true, order: 5 },
+];
+
+// Legacy exports for backwards compatibility
+export const CATEGORY_LABELS: Record<string, string> = {
   car: 'Vehicles',
   tractor: 'Tractors',
   atv: 'Power Sports',
@@ -89,7 +100,7 @@ export const CATEGORY_LABELS: Record<AssetCategory, string> = {
   boat: 'Watercraft',
 };
 
-export const ASSET_CATEGORIES: AssetCategory[] = [
+export const ASSET_CATEGORIES: string[] = [
   'car',
   'tractor',
   'atv',
@@ -98,7 +109,7 @@ export const ASSET_CATEGORIES: AssetCategory[] = [
   'boat',
 ];
 
-export const DEFAULT_CATEGORY_ICONS: Record<AssetCategory, IconOption> = {
+export const DEFAULT_CATEGORY_ICONS: Record<string, IconOption> = {
   car: 'car',
   tractor: 'tractor',
   atv: 'atv',
@@ -172,5 +183,39 @@ export const DEFAULT_MAINTENANCE_TEMPLATES: Record<
     { name: 'Impeller Replacement', intervalType: 'years', intervalValue: 2, reminderDays: 30 },
     { name: 'Winterization', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
     { name: 'Registration Renewal', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
+  ],
+  // Pet maintenance templates
+  pets: [
+    { name: 'Annual Checkup', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
+    { name: 'Vaccinations', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
+    { name: 'Flea/Tick Prevention', intervalType: 'months', intervalValue: 1, reminderDays: 7 },
+    { name: 'Heartworm Prevention', intervalType: 'months', intervalValue: 1, reminderDays: 7 },
+    { name: 'Dental Cleaning', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
+    { name: 'Grooming', intervalType: 'months', intervalValue: 2, reminderDays: 7 },
+    { name: 'Nail Trim', intervalType: 'months', intervalValue: 1, reminderDays: 7 },
+  ],
+  livestock: [
+    { name: 'Veterinary Checkup', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
+    { name: 'Vaccinations', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
+    { name: 'Deworming', intervalType: 'months', intervalValue: 3, reminderDays: 14 },
+    { name: 'Hoof Trimming', intervalType: 'months', intervalValue: 2, reminderDays: 14 },
+    { name: 'Shearing', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
+  ],
+  // Money/Bills maintenance templates
+  dollar: [
+    { name: 'Monthly Payment', intervalType: 'months', intervalValue: 1, reminderDays: 7 },
+    { name: 'Quarterly Payment', intervalType: 'months', intervalValue: 3, reminderDays: 14 },
+    { name: 'Annual Payment', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
+    { name: 'Review Statement', intervalType: 'months', intervalValue: 1, reminderDays: 3 },
+  ],
+  // Garden maintenance templates
+  garden: [
+    { name: 'Watering', intervalType: 'days', intervalValue: 2, reminderDays: 1 },
+    { name: 'Fertilizing', intervalType: 'months', intervalValue: 1, reminderDays: 7 },
+    { name: 'Weeding', intervalType: 'days', intervalValue: 7, reminderDays: 1 },
+    { name: 'Pest Inspection', intervalType: 'days', intervalValue: 14, reminderDays: 3 },
+    { name: 'Pruning', intervalType: 'months', intervalValue: 3, reminderDays: 7 },
+    { name: 'Soil Testing', intervalType: 'years', intervalValue: 1, reminderDays: 30 },
+    { name: 'Mulching', intervalType: 'years', intervalValue: 1, reminderDays: 14 },
   ],
 };

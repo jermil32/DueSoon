@@ -2,9 +2,9 @@
   "expo": {
     "name": "DueSoon",
     "slug": "DueSoon",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/duesoon-shield.png",
+    "version": "1.1.0",
+    "orientation": "default",
+    "icon": "./assets/duesoon-shield-square.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -15,20 +15,21 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.duesoon.app",
-      "buildNumber": "1",
+      "buildNumber": "5",
+      "icon": "./assets/duesoon-shield-square.png",
       "infoPlist": {
-        "NSUserTrackingUsageDescription": "This app does not track you."
+        "NSUserTrackingUsageDescription": "This app does not track you.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/duesoon-shield.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FF6B35"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.duesoon.app",
-      "versionCode": 1,
+      "versionCode": 13,
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
@@ -42,16 +43,18 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/duesoon-shield.png",
+          "icon": "./assets/duesoon-shield-square.png",
           "color": "#FF6B35"
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-font"
     ],
     "extra": {
       "eas": {
         "projectId": "91e876f3-fc98-4997-9114-7c65d87e35cc"
-      }
+      },
+      "privacyPolicyUrl": "https://jermil32.github.io/duesoon-legal/privacy-policy.html"
     }
   }
 }

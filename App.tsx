@@ -5,7 +5,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View, ActivityIndicator, Alert } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import Svg, { Path, Rect, Circle } from 'react-native-svg';
+import Svg, { Path, Rect } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
 
 import { RootStackParamList, MainTabParamList } from './src/navigation/types';
 import {
@@ -21,6 +22,10 @@ import {
   OnboardingScreen,
   CalendarScreen,
   UpgradeScreen,
+  InventoryScreen,
+  AddInventoryScreen,
+  InventoryDetailScreen,
+  AmazonBrowserScreen,
 } from './src/screens';
 import {
   requestNotificationPermissions,
@@ -28,9 +33,15 @@ import {
   scheduleSnoozeNotification,
   NOTIFICATION_ACTIONS,
 } from './src/utils/notifications';
-import { getSettings } from './src/storage';
+import { getSettings, getInventory } from './src/storage';
+import { isLowStock, sendLowStockNotification } from './src/utils/notifications';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { PremiumProvider } from './src/context/PremiumContext';
+import { TutorialProvider } from './src/context/TutorialContext';
+import { NetworkProvider } from './src/context/NetworkContext';
+import TutorialOverlay from './src/components/TutorialOverlay';
+import OfflineBanner from './src/components/OfflineBanner';
 import { LIGHT_COLORS } from './src/utils/constants';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -60,12 +71,20 @@ function AssetsIcon({ size, color }: { size: number; color: string }) {
 }
 
 function SettingsIcon({ size, color }: { size: number; color: string }) {
+  return <Ionicons name="settings-outline" size={size} color={color} />;
+}
+
+function InventoryIcon({ size, color }: { size: number; color: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
-      <Circle cx="12" cy="12" r="3" fill={color} />
       <Path
-        d="M12 1L14 4H10L12 1ZM12 23L10 20H14L12 23ZM1 12L4 10V14L1 12ZM23 12L20 14V10L23 12ZM3.5 3.5L6 5L5 6L3.5 3.5ZM20.5 20.5L18 19L19 18L20.5 20.5ZM3.5 20.5L5 18L6 19L3.5 20.5ZM20.5 3.5L19 6L18 5L20.5 3.5Z"
+        d="M20 7L12 3L4 7V17L12 21L20 17V7Z"
         fill={color}
+      />
+      <Path
+        d="M12 12L4 8M12 12L20 8M12 12V21"
+        stroke="white"
+        strokeWidth="1.5"
       />
     </Svg>
   );
@@ -91,6 +110,8 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
       return <HomeIcon size={size} color={color} />;
     case 'Assets':
       return <AssetsIcon size={size} color={color} />;
+    case 'Inventory':
+      return <InventoryIcon size={size} color={color} />;
     case 'Settings':
       return <SettingsIcon size={size} color={color} />;
     default:
@@ -131,6 +152,11 @@ function MainTabs() {
         name="Assets"
         component={AssetsScreen}
         options={{ title: 'My Assets' }}
+      />
+      <Tab.Screen
+        name="Inventory"
+        component={InventoryScreen}
+        options={{ title: 'Inventory' }}
       />
       <Tab.Screen
         name="Settings"
@@ -215,6 +241,21 @@ function AppNavigator() {
           component={UpgradeScreen}
           options={{ title: 'Upgrade to Premium', presentation: 'modal' }}
         />
+        <Stack.Screen
+          name="AddInventory"
+          component={AddInventoryScreen}
+          options={{ title: 'Add Item', presentation: 'modal' }}
+        />
+        <Stack.Screen
+          name="InventoryDetail"
+          component={InventoryDetailScreen}
+          options={{ title: 'Item Details' }}
+        />
+        <Stack.Screen
+          name="AmazonBrowser"
+          component={AmazonBrowserScreen}
+          options={{ headerShown: false, presentation: 'modal' }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -233,6 +274,24 @@ function AppContent() {
       setIsLoading(false);
       await requestNotificationPermissions();
       await setupNotificationCategories();
+
+      // Check for low stock items and send notification
+      const inventory = await getInventory();
+      const lowStockItems = inventory.filter(isLowStock);
+      if (lowStockItems.length > 0) {
+        // Send a single summary notification for all low stock items
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Low Stock Alert',
+            body: lowStockItems.length === 1
+              ? `${lowStockItems[0].name} is running low`
+              : `${lowStockItems.length} items are running low on stock`,
+            data: { type: 'low_stock_summary' },
+            sound: true,
+          },
+          trigger: null,
+        });
+      }
     };
     initApp();
 
@@ -347,15 +406,27 @@ function AppContent() {
     );
   }
 
-  return <AppNavigator />;
+  return (
+    <>
+      <OfflineBanner />
+      <AppNavigator />
+      <TutorialOverlay />
+    </>
+  );
 }
 
 export default function App() {
   return (
-    <PremiumProvider>
-      <ThemeProvider>
-        <AppContent />
-      </ThemeProvider>
-    </PremiumProvider>
+    <SafeAreaProvider>
+      <PremiumProvider>
+        <ThemeProvider>
+          <NetworkProvider>
+            <TutorialProvider>
+              <AppContent />
+            </TutorialProvider>
+          </NetworkProvider>
+        </ThemeProvider>
+      </PremiumProvider>
+    </SafeAreaProvider>
   );
 }

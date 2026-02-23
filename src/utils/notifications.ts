@@ -1,7 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
-import { MaintenanceTask, Asset } from '../types';
+import { MaintenanceTask, Asset, InventoryItem } from '../types';
 
 // Notification action identifiers
 export const NOTIFICATION_ACTIONS = {
@@ -11,8 +11,9 @@ export const NOTIFICATION_ACTIONS = {
   GOT_IT: 'GOT_IT',
 };
 
-// Notification category identifier
+// Notification category identifiers
 export const MAINTENANCE_CATEGORY = 'MAINTENANCE_REMINDER';
+export const INVENTORY_CATEGORY = 'INVENTORY_LOW_STOCK';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -181,4 +182,32 @@ export async function cancelAllNotifications(): Promise<void> {
 
 export async function getScheduledNotifications(): Promise<Notifications.NotificationRequest[]> {
   return await Notifications.getAllScheduledNotificationsAsync();
+}
+
+// Send immediate notification for low stock inventory
+export async function sendLowStockNotification(item: InventoryItem): Promise<string | null> {
+  try {
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Low Stock Alert',
+        body: `${item.name} is running low (${item.quantity} ${item.unit} remaining)`,
+        data: { itemId: item.id, type: 'low_stock' },
+        sound: true,
+      },
+      trigger: null, // Send immediately
+    });
+
+    return identifier;
+  } catch (error) {
+    console.error('Failed to send low stock notification:', error);
+    return null;
+  }
+}
+
+// Check if item is below reorder threshold
+export function isLowStock(item: InventoryItem): boolean {
+  if (item.reorderThreshold === undefined || item.reorderThreshold === null) {
+    return false;
+  }
+  return item.quantity <= item.reorderThreshold;
 }

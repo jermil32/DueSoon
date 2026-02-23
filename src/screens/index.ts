@@ -10,3 +10,7 @@ export { default as LogMaintenanceScreen } from './LogMaintenanceScreen';
 export { default as OnboardingScreen } from './OnboardingScreen';
 export { default as CalendarScreen } from './CalendarScreen';
 export { default as UpgradeScreen } from './UpgradeScreen';
+export { default as InventoryScreen } from './InventoryScreen';
+export { default as AddInventoryScreen } from './AddInventoryScreen';
+export { default as InventoryDetailScreen } from './InventoryDetailScreen';
+export { default as AmazonBrowserScreen } from './AmazonBrowserScreen';

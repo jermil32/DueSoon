@@ -11,12 +11,24 @@ import {
   Platform,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { RootStackScreenProps } from '../navigation/types';
-import { MaintenanceTask, MaintenanceLog, Asset } from '../types';
-import { getTasks, updateTask, addLog, updateLog, getLogById, getAssets } from '../storage';
+import { MaintenanceTask, MaintenanceLog, Asset, InventoryItem, InventoryUsageLog } from '../types';
+import {
+  getTasks,
+  updateTask,
+  addLog,
+  updateLog,
+  getLogById,
+  getAssets,
+  getInventory,
+  updateInventoryQuantity,
+  addInventoryUsageLog,
+} from '../storage';
 import { calculateNextDueDate, formatDate } from '../utils/dates';
 import { scheduleTaskNotification, requestNotificationPermissions } from '../utils/notifications';
+import { maybeRequestReview } from '../utils/reviewPrompt';
 import { COLORS, SPACING, FONT_SIZE } from '../utils/constants';
 
 type Props = RootStackScreenProps<'LogMaintenance'>;
@@ -39,6 +51,8 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
   const [cost, setCost] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [selectedInventory, setSelectedInventory] = useState<Record<string, number>>({});
 
   useEffect(() => {
     loadData();
@@ -51,12 +65,23 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
   }, [navigation, isEditing]);
 
   const loadData = async () => {
-    const [tasks, assets] = await Promise.all([getTasks(), getAssets()]);
+    const [tasks, assets, inventory] = await Promise.all([getTasks(), getAssets(), getInventory()]);
     const foundTask = tasks.find((t) => t.id === taskId);
     setTask(foundTask || null);
+
     if (foundTask) {
       const foundAsset = assets.find((a) => a.id === foundTask.assetId);
       setAsset(foundAsset || null);
+
+      // Load inventory items that have stock AND apply to this asset's category
+      const filteredInventory = inventory.filter(item => {
+        if (item.quantity <= 0) return false;
+        // If no categories specified, item applies to all asset types
+        if (!item.applicableCategories || item.applicableCategories.length === 0) return true;
+        // Otherwise, check if the asset's category is in the applicable list
+        return foundAsset && item.applicableCategories.includes(foundAsset.category);
+      });
+      setInventoryItems(filteredInventory);
 
       // If editing, load existing log data
       if (logId) {
@@ -78,6 +103,24 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
           setHours(foundTask.lastHours.toString());
         }
       }
+    }
+  };
+
+  const toggleInventoryItem = (itemId: string) => {
+    setSelectedInventory(prev => {
+      if (prev[itemId]) {
+        const { [itemId]: _, ...rest } = prev;
+        return rest;
+      } else {
+        return { ...prev, [itemId]: 1 };
+      }
+    });
+  };
+
+  const updateInventoryUsage = (itemId: string, quantity: number) => {
+    const item = inventoryItems.find(i => i.id === itemId);
+    if (item && quantity > 0 && quantity <= item.quantity) {
+      setSelectedInventory(prev => ({ ...prev, [itemId]: quantity }));
     }
   };
 
@@ -167,6 +210,22 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
         await updateLog(log);
       } else {
         await addLog(log);
+
+        // Deduct selected inventory items (only for new logs)
+        for (const [itemId, quantityUsed] of Object.entries(selectedInventory)) {
+          if (quantityUsed > 0) {
+            await updateInventoryQuantity(itemId, -quantityUsed);
+            const usageLog: InventoryUsageLog = {
+              id: `usage-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              inventoryItemId: itemId,
+              maintenanceLogId: log.id,
+              quantityUsed,
+              usedAt: Date.now(),
+              notes: `Used for ${task.name} on ${asset?.name}`,
+            };
+            await addInventoryUsageLog(usageLog);
+          }
+        }
       }
 
       // Determine next due date
@@ -238,7 +297,10 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
       Alert.alert(
         'Maintenance Logged',
         confirmMessage,
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
+        [{ text: 'OK', onPress: async () => {
+          await maybeRequestReview();
+          navigation.goBack();
+        }}]
       );
     } catch (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -409,6 +471,61 @@ export default function LogMaintenanceScreen({ navigation, route }: Props) {
             numberOfLines={3}
           />
         </View>
+
+        {/* Inventory Usage - only show for new logs */}
+        {!isEditing && inventoryItems.length > 0 && (
+          <View style={styles.field}>
+            <Text style={styles.label}>Use Inventory Items (optional)</Text>
+            <Text style={styles.hint}>Select items to deduct from your inventory</Text>
+            <View style={styles.inventoryList}>
+              {inventoryItems.map(item => {
+                const isSelected = selectedInventory[item.id] !== undefined;
+                const selectedQty = selectedInventory[item.id] || 0;
+                return (
+                  <View key={item.id} style={styles.inventoryItem}>
+                    <TouchableOpacity
+                      style={[
+                        styles.inventoryCheckbox,
+                        isSelected && styles.inventoryCheckboxSelected,
+                      ]}
+                      onPress={() => toggleInventoryItem(item.id)}
+                    >
+                      {isSelected && (
+                        <Ionicons name="checkmark" size={16} color={COLORS.surface} />
+                      )}
+                    </TouchableOpacity>
+                    <View style={styles.inventoryItemInfo}>
+                      <Text style={styles.inventoryItemName}>{item.name}</Text>
+                      <Text style={styles.inventoryItemStock}>
+                        {item.quantity} {item.unit} in stock
+                        {item.brand && ` • ${item.brand}`}
+                      </Text>
+                    </View>
+                    {isSelected && (
+                      <View style={styles.inventoryQtyContainer}>
+                        <TouchableOpacity
+                          style={styles.inventoryQtyButton}
+                          onPress={() => updateInventoryUsage(item.id, selectedQty - 1)}
+                          disabled={selectedQty <= 1}
+                        >
+                          <Ionicons name="remove" size={16} color={selectedQty <= 1 ? COLORS.textLight : COLORS.text} />
+                        </TouchableOpacity>
+                        <Text style={styles.inventoryQtyText}>{selectedQty}</Text>
+                        <TouchableOpacity
+                          style={styles.inventoryQtyButton}
+                          onPress={() => updateInventoryUsage(item.id, selectedQty + 1)}
+                          disabled={selectedQty >= item.quantity}
+                        >
+                          <Ionicons name="add" size={16} color={selectedQty >= item.quantity ? COLORS.textLight : COLORS.text} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         {/* Next Due Date */}
         <View style={styles.field}>
@@ -669,5 +786,62 @@ const styles = StyleSheet.create({
   resetDateButtonText: {
     fontSize: FONT_SIZE.sm,
     color: COLORS.textSecondary,
+  },
+  inventoryList: {
+    marginTop: SPACING.sm,
+    gap: SPACING.sm,
+  },
+  inventoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    padding: SPACING.sm,
+  },
+  inventoryCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.sm,
+  },
+  inventoryCheckboxSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  inventoryItemInfo: {
+    flex: 1,
+  },
+  inventoryItemName: {
+    fontSize: FONT_SIZE.md,
+    fontWeight: '500',
+    color: COLORS.text,
+  },
+  inventoryItemStock: {
+    fontSize: FONT_SIZE.sm,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  inventoryQtyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+    borderRadius: 6,
+    paddingHorizontal: SPACING.xs,
+  },
+  inventoryQtyButton: {
+    padding: SPACING.xs,
+  },
+  inventoryQtyText: {
+    fontSize: FONT_SIZE.md,
+    fontWeight: '600',
+    color: COLORS.text,
+    minWidth: 24,
+    textAlign: 'center',
   },
 });

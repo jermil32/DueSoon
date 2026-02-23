@@ -8,8 +8,10 @@ import {
   Alert,
   ScrollView,
   Platform,
+  Linking,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
 import Constants from 'expo-constants';
@@ -17,10 +19,11 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { MainTabScreenProps } from '../navigation/types';
 import { AppSettings } from '../types';
 import { getSettings, saveSettings, clearAllData, getAssets, getTasks, getLogs } from '../storage';
-import { requestNotificationPermissions, cancelAllNotifications, MAINTENANCE_CATEGORY } from '../utils/notifications';
+import { requestNotificationPermissions, cancelAllNotifications } from '../utils/notifications';
 import { SPACING, FONT_SIZE } from '../utils/constants';
 import { useTheme } from '../context/ThemeContext';
 import { usePremium, FREE_ASSET_LIMIT } from '../context/PremiumContext';
+import { useTutorial } from '../context/TutorialContext';
 
 const APP_VERSION = Constants.expoConfig?.version || '1.0.0';
 
@@ -29,6 +32,7 @@ type Props = MainTabScreenProps<'Settings'>;
 export default function SettingsScreen({ navigation }: Props) {
   const { colors, themeMode, setThemeMode, isDark } = useTheme();
   const { isPremium } = usePremium();
+  const { resetTutorials, dismissedAll, completedTutorials } = useTutorial();
   const [settings, setSettings] = useState<AppSettings>({
     notificationsEnabled: true,
     defaultReminderDays: 7,
@@ -114,42 +118,10 @@ export default function SettingsScreen({ navigation }: Props) {
     );
   };
 
-  const handleTestNotification = async () => {
+  const handleResetTutorials = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (!settings.notificationsEnabled) {
-      Alert.alert(
-        'Notifications Disabled',
-        'Please enable notifications first to test them.'
-      );
-      return;
-    }
-
-    // Schedule a test notification in 5 seconds
-    const testDate = new Date(Date.now() + 5000);
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Test: Maintenance Due Soon',
-        body: 'Oil Change for Test Vehicle is due in 3 days',
-        data: {
-          taskId: 'test-task',
-          assetId: 'test-asset',
-          taskName: 'Oil Change',
-          assetName: 'Test Vehicle',
-        },
-        sound: true,
-        categoryIdentifier: MAINTENANCE_CATEGORY,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: testDate,
-      },
-    });
-
-    Alert.alert(
-      'Test Notification Scheduled',
-      'A test notification will appear in 5 seconds. Try the snooze options when it arrives!'
-    );
+    await resetTutorials();
+    Alert.alert('Done', 'Tutorial tips have been reset. You will see helpful tips as you navigate the app.');
   };
 
   const styles = StyleSheet.create({
@@ -232,17 +204,59 @@ export default function SettingsScreen({ navigation }: Props) {
       color: colors.textSecondary,
       marginTop: 2,
     },
-    testButton: {
-      backgroundColor: colors.primary,
+    inventoryButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.background,
       padding: SPACING.md,
       borderRadius: 8,
-      alignItems: 'center',
-      marginTop: SPACING.sm,
     },
-    testButtonText: {
-      color: '#FFFFFF',
+    inventoryButtonContent: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    inventoryButtonInfo: {
+      marginLeft: SPACING.md,
+      flex: 1,
+    },
+    inventoryButtonText: {
       fontSize: FONT_SIZE.lg,
       fontWeight: '600',
+      color: colors.text,
+    },
+    inventoryButtonDescription: {
+      fontSize: FONT_SIZE.sm,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    inventoryBadge: {
+      backgroundColor: colors.primary + '20',
+      paddingHorizontal: SPACING.sm,
+      paddingVertical: SPACING.xs,
+      borderRadius: 12,
+      marginRight: SPACING.sm,
+    },
+    inventoryBadgeText: {
+      fontSize: FONT_SIZE.sm,
+      fontWeight: '600',
+      color: colors.primary,
+    },
+    resetTutorialButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: SPACING.md,
+      borderRadius: 8,
+      borderWidth: 1,
+      marginBottom: SPACING.md,
+    },
+    resetTutorialText: {
+      fontSize: FONT_SIZE.md,
+      fontWeight: '500',
+    },
+    resetTutorialSubtext: {
+      fontSize: FONT_SIZE.sm,
+      marginTop: 2,
     },
     dangerButton: {
       backgroundColor: colors.danger,
@@ -329,6 +343,20 @@ export default function SettingsScreen({ navigation }: Props) {
       color: colors.textSecondary,
       textAlign: 'center',
       marginTop: SPACING.sm,
+      marginBottom: SPACING.md,
+    },
+    aboutLink: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      paddingVertical: SPACING.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    aboutLinkText: {
+      flex: 1,
+      fontSize: FONT_SIZE.md,
+      fontWeight: '500' as const,
+      marginLeft: SPACING.md,
     },
   });
 
@@ -388,9 +416,6 @@ export default function SettingsScreen({ navigation }: Props) {
             thumbColor={settings.notificationsEnabled ? colors.primary : colors.textLight}
           />
         </View>
-        <TouchableOpacity style={styles.testButton} onPress={handleTestNotification}>
-          <Text style={styles.testButtonText}>Test Notification</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.section}>
@@ -413,6 +438,20 @@ export default function SettingsScreen({ navigation }: Props) {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Data Management</Text>
+        <TouchableOpacity
+          style={[styles.resetTutorialButton, { backgroundColor: colors.background, borderColor: colors.border }]}
+          onPress={handleResetTutorials}
+        >
+          <Ionicons name="refresh-outline" size={20} color={colors.primary} style={{ marginRight: SPACING.sm }} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.resetTutorialText, { color: colors.text }]}>Reset Tutorial Tips</Text>
+            <Text style={[styles.resetTutorialSubtext, { color: colors.textSecondary }]}>
+              {dismissedAll || completedTutorials.length > 0
+                ? 'Show helpful tips again'
+                : 'All tips are enabled'}
+            </Text>
+          </View>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.dangerButton} onPress={handleClearData}>
           <Text style={styles.dangerButtonText}>Clear All Data</Text>
         </TouchableOpacity>
@@ -462,6 +501,38 @@ export default function SettingsScreen({ navigation }: Props) {
             Track maintenance schedules for your vehicles, equipment, and property.
           </Text>
         </View>
+
+        <TouchableOpacity
+          style={styles.aboutLink}
+          onPress={() => Linking.openURL('https://jermil32.github.io/duesoon-legal/privacy-policy.html')}
+        >
+          <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+          <Text style={[styles.aboutLinkText, { color: colors.text }]}>Privacy Policy</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.aboutLink}
+          onPress={() => Linking.openURL('https://jermil32.github.io/duesoon-legal/privacy-policy.html')}
+        >
+          <Ionicons name="document-text-outline" size={20} color={colors.primary} />
+          <Text style={[styles.aboutLinkText, { color: colors.text }]}>Terms of Service</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.aboutLink}
+          onPress={() => {
+            const storeUrl = Platform.OS === 'ios'
+              ? 'https://apps.apple.com/app/com.duesoon.app'
+              : 'https://play.google.com/store/apps/details?id=com.duesoon.app';
+            Linking.openURL(storeUrl);
+          }}
+        >
+          <Ionicons name="star-outline" size={20} color={colors.primary} />
+          <Text style={[styles.aboutLinkText, { color: colors.text }]}>Rate the App</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );

@@ -2,12 +2,12 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Asset, MaintenanceTask, MaintenanceLog } from '../types';
 import { formatDate, formatInterval } from './dates';
-import { CATEGORY_LABELS } from './constants';
 
 interface ServiceHistoryData {
   asset: Asset;
   tasks: MaintenanceTask[];
   logs: MaintenanceLog[];
+  categoryLabel?: string;
 }
 
 function generateHTML(data: ServiceHistoryData): string {
@@ -223,7 +223,7 @@ function generateHTML(data: ServiceHistoryData): string {
     <body>
       <div class="header">
         <h1>${asset.name}</h1>
-        <div class="subtitle">${CATEGORY_LABELS[asset.category]}</div>
+        <div class="subtitle">${data.categoryLabel || asset.category}</div>
         ${assetInfo ? `<div class="asset-info">${assetInfo}</div>` : ''}
       </div>
 

@@ -8,27 +8,41 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RootStackScreenProps } from '../navigation/types';
-import { Asset, MaintenanceTask } from '../types';
-import { getAssets, getTasks } from '../storage';
+import { Asset, MaintenanceTask, AssetClass } from '../types';
+import { getAssets, getTasks, getAssetClasses } from '../storage';
 import { getTaskStatus } from '../utils/dates';
-import { COLORS, SPACING, FONT_SIZE, CATEGORY_LABELS } from '../utils/constants';
+import { COLORS, SPACING, FONT_SIZE } from '../utils/constants';
+import { useTutorial } from '../context/TutorialContext';
 
 type Props = RootStackScreenProps<'AssetsByCategory'>;
 
 export default function AssetsByCategoryScreen({ navigation, route }: Props) {
   const { category } = route.params;
+  const insets = useSafeAreaInsets();
+  const { showTutorial } = useTutorial();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [categoryLabel, setCategoryLabel] = useState('');
+  const [hasShownTutorial, setHasShownTutorial] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [loadedAssets, loadedTasks] = await Promise.all([getAssets(), getTasks()]);
+    const [loadedAssets, loadedTasks, loadedClasses] = await Promise.all([
+      getAssets(),
+      getTasks(),
+      getAssetClasses(),
+    ]);
     const categoryAssets = loadedAssets
       .filter((a) => a.category === category)
       .sort((a, b) => b.updatedAt - a.updatedAt);
     setAssets(categoryAssets);
     setTasks(loadedTasks);
+
+    // Get category label
+    const assetClass = loadedClasses.find(c => c.id === category);
+    setCategoryLabel(assetClass?.label || category);
   }, [category]);
 
   useFocusEffect(
@@ -38,10 +52,20 @@ export default function AssetsByCategoryScreen({ navigation, route }: Props) {
   );
 
   React.useEffect(() => {
-    navigation.setOptions({
-      title: CATEGORY_LABELS[category],
-    });
-  }, [navigation, category]);
+    if (categoryLabel) {
+      navigation.setOptions({
+        title: categoryLabel,
+      });
+    }
+  }, [navigation, categoryLabel]);
+
+  // Show add asset tutorial when category is empty
+  React.useEffect(() => {
+    if (categoryLabel && assets.length === 0 && !hasShownTutorial) {
+      setHasShownTutorial(true);
+      showTutorial('category_add_asset');
+    }
+  }, [categoryLabel, assets.length, hasShownTutorial, showTutorial]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -103,9 +127,9 @@ export default function AssetsByCategoryScreen({ navigation, route }: Props) {
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
-      <Text style={styles.emptyTitle}>No {CATEGORY_LABELS[category]}</Text>
+      <Text style={styles.emptyTitle}>No {categoryLabel}</Text>
       <Text style={styles.emptyText}>
-        Tap the + button to add your first {CATEGORY_LABELS[category].toLowerCase()}.
+        Tap the + button to add your first {categoryLabel.toLowerCase()}.
       </Text>
     </View>
   );
@@ -123,7 +147,7 @@ export default function AssetsByCategoryScreen({ navigation, route }: Props) {
         }
       />
       <TouchableOpacity
-        style={styles.fab}
+        style={[styles.fab, { bottom: Math.max(SPACING.lg, insets.bottom + SPACING.md) }]}
         onPress={() => navigation.navigate('AddAsset', { category })}
       >
         <Text style={styles.fabText}>+</Text>
@@ -222,7 +246,6 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: SPACING.lg,
     right: SPACING.lg,
     width: 56,
     height: 56,

@@ -14,11 +14,15 @@ export type RootStackParamList = {
   LogMaintenance: { taskId: string; logId?: string };
   Calendar: undefined;
   Upgrade: { feature?: string } | undefined;
+  AddInventory: { itemId?: string; amazonUrl?: string } | undefined;
+  InventoryDetail: { itemId: string };
+  AmazonBrowser: { searchUrl: string; onSelectUrl?: (url: string) => void };
 };
 
 export type MainTabParamList = {
   Home: undefined;
   Assets: undefined;
+  Inventory: undefined;
   Settings: undefined;
 };
 

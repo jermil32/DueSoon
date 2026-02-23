@@ -10,16 +10,21 @@ import {
   TextInput,
   Modal,
   Image,
+  Linking,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import { MainTabScreenProps } from '../navigation/types';
-import { MaintenanceTask, Asset, AssetCategory, AppSettings, IconOption } from '../types';
-import { getAssets, getTasks, getSettings, saveSettings } from '../storage';
+import { MaintenanceTask, Asset, AssetClass, IconOption, InventoryItem } from '../types';
+import { getAssets, getTasks, getAssetClasses, saveAssetClasses, getInventory } from '../storage';
+import { isLowStock } from '../utils/notifications';
+import { getAmazonUrl } from '../utils/amazon';
 import { sortTasksByUrgency, getTaskStatus, getDaysUntilDue } from '../utils/dates';
-import { LIGHT_COLORS as COLORS, SPACING, FONT_SIZE, CATEGORY_LABELS, ASSET_CATEGORIES, DEFAULT_CATEGORY_ICONS, ICON_OPTIONS } from '../utils/constants';
+import { LIGHT_COLORS as COLORS, SPACING, FONT_SIZE, ICON_OPTIONS, DEFAULT_ASSET_CLASSES } from '../utils/constants';
 import { useTheme } from '../context/ThemeContext';
+import { useNetwork } from '../context/NetworkContext';
+import { useTutorial } from '../context/TutorialContext';
 import * as Haptics from 'expo-haptics';
 
 type Props = MainTabScreenProps<'Home'>;
@@ -403,38 +408,55 @@ function CategoryIcon({ icon, size = 40, color = COLORS.text }: { icon: IconOpti
 
 export default function HomeScreen({ navigation }: Props) {
   const { colors } = useTheme();
+  const { isConnected } = useNetwork();
+  const { showTutorial, shouldShowTutorial } = useTutorial();
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [assetClasses, setAssetClasses] = useState<AssetClass[]>([]);
+  const [lowStockItems, setLowStockItems] = useState<InventoryItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [customLabels, setCustomLabels] = useState<Record<AssetCategory, string>>(CATEGORY_LABELS);
-  const [customIcons, setCustomIcons] = useState<Record<AssetCategory, IconOption>>(DEFAULT_CATEGORY_ICONS);
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<AssetCategory | null>(null);
+  const [editingClass, setEditingClass] = useState<AssetClass | null>(null);
   const [editLabelText, setEditLabelText] = useState('');
   const [editIconSelection, setEditIconSelection] = useState<IconOption | null>(null);
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [prevAssetCount, setPrevAssetCount] = useState<number | null>(null);
 
   const loadData = useCallback(async () => {
-    const [loadedAssets, loadedTasks, settings] = await Promise.all([
+    const [loadedAssets, loadedTasks, loadedClasses, loadedInventory] = await Promise.all([
       getAssets(),
       getTasks(),
-      getSettings(),
+      getAssetClasses(),
+      getInventory(),
     ]);
     setAssets(loadedAssets);
     setTasks(sortTasksByUrgency(loadedTasks));
-    if (settings.customCategoryLabels) {
-      setCustomLabels({ ...CATEGORY_LABELS, ...settings.customCategoryLabels });
-    }
-    if (settings.customCategoryIcons) {
-      setCustomIcons({ ...DEFAULT_CATEGORY_ICONS, ...settings.customCategoryIcons });
-    }
+    // Sort by order and take only the first 6 for home screen display
+    setAssetClasses(loadedClasses.sort((a, b) => a.order - b.order));
+    // Filter for low stock items
+    setLowStockItems(loadedInventory.filter(isLowStock));
   }, []);
+
+  // Get top 6 categories for home screen display
+  const topCategories = assetClasses.slice(0, 6);
 
   useFocusEffect(
     useCallback(() => {
       loadData();
     }, [loadData])
   );
+
+  // Tutorial logic
+  React.useEffect(() => {
+    if (assets.length === 0 && assetClasses.length > 0) {
+      // No assets yet, show the category tap tutorial
+      showTutorial('home_category_tap');
+    } else if (prevAssetCount === 0 && assets.length === 1) {
+      // User just added their first asset, show longpress tutorial
+      showTutorial('home_category_longpress');
+    }
+    setPrevAssetCount(assets.length);
+  }, [assets.length, assetClasses.length, prevAssetCount, showTutorial]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -473,67 +495,52 @@ export default function HomeScreen({ navigation }: Props) {
     return status === 'overdue' || status === 'due-soon';
   });
 
-  const handleCategoryPress = (category: AssetCategory) => {
-    navigation.navigate('AddAsset', { category });
+  const handleCategoryPress = (assetClass: AssetClass) => {
+    navigation.navigate('AssetsByCategory', { category: assetClass.id });
   };
 
-  const handleCategoryLongPress = (category: AssetCategory) => {
-    setEditingCategory(category);
-    setEditLabelText(customLabels[category]);
-    setEditIconSelection(customIcons[category]);
+  const handleCategoryLongPress = (assetClass: AssetClass) => {
+    setEditingClass(assetClass);
+    setEditLabelText(assetClass.label);
+    setEditIconSelection(assetClass.icon);
     setEditModalVisible(true);
   };
 
   const handleSave = async () => {
-    if (editingCategory && editLabelText.trim() && editIconSelection) {
-      const newLabels = { ...customLabels, [editingCategory]: editLabelText.trim() };
-      const newIcons = { ...customIcons, [editingCategory]: editIconSelection };
-      setCustomLabels(newLabels);
-      setCustomIcons(newIcons);
-
-      const settings = await getSettings();
-      await saveSettings({
-        ...settings,
-        customCategoryLabels: newLabels,
-        customCategoryIcons: newIcons,
-      });
+    if (editingClass && editLabelText.trim() && editIconSelection) {
+      const updatedClass = {
+        ...editingClass,
+        label: editLabelText.trim(),
+        icon: editIconSelection,
+      };
+      const newClasses = assetClasses.map(c =>
+        c.id === editingClass.id ? updatedClass : c
+      );
+      setAssetClasses(newClasses);
+      await saveAssetClasses(newClasses);
 
       setEditModalVisible(false);
       setShowIconPicker(false);
-      setEditingCategory(null);
+      setEditingClass(null);
       setEditLabelText('');
       setEditIconSelection(null);
     }
   };
 
   const handleReset = async () => {
-    if (editingCategory) {
-      const defaultLabel = CATEGORY_LABELS[editingCategory];
-      const defaultIcon = DEFAULT_CATEGORY_ICONS[editingCategory];
-      const newLabels = { ...customLabels, [editingCategory]: defaultLabel };
-      const newIcons = { ...customIcons, [editingCategory]: defaultIcon };
-      setCustomLabels(newLabels);
-      setCustomIcons(newIcons);
-
-      const settings = await getSettings();
-      await saveSettings({
-        ...settings,
-        customCategoryLabels: newLabels,
-        customCategoryIcons: newIcons,
-      });
-
-      setEditModalVisible(false);
-      setShowIconPicker(false);
-      setEditingCategory(null);
-      setEditLabelText('');
-      setEditIconSelection(null);
+    if (editingClass && editingClass.isBuiltIn) {
+      const defaultClass = DEFAULT_ASSET_CLASSES.find(c => c.id === editingClass.id);
+      if (defaultClass) {
+        setEditLabelText(defaultClass.label);
+        setEditIconSelection(defaultClass.icon);
+      }
     }
   };
 
   const handleCloseModal = () => {
     setEditModalVisible(false);
     setShowIconPicker(false);
-    setEditingCategory(null);
+    setEditingClass(null);
     setEditLabelText('');
     setEditIconSelection(null);
   };
@@ -548,39 +555,88 @@ export default function HomeScreen({ navigation }: Props) {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {urgentTasks.length > 0 ? (
+        {urgentTasks.length > 0 || lowStockItems.length > 0 ? (
           <View style={styles.tasksSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Needs Attention</Text>
-              <TouchableOpacity
-                style={styles.calendarButton}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  navigation.navigate('Calendar');
-                }}
-              >
-                <Text style={styles.calendarButtonText}>Calendar</Text>
-              </TouchableOpacity>
-            </View>
-            {urgentTasks.slice(0, 5).map((task) => {
-              const status = getTaskStatus(task);
-              return (
-                <TouchableOpacity
-                  key={task.id}
-                  style={styles.taskCard}
-                  onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}
-                >
-                  <View style={[styles.statusDot, { backgroundColor: getStatusColor(status) }]} />
-                  <View style={styles.taskContent}>
-                    <Text style={styles.taskName} numberOfLines={1}>{task.name}</Text>
-                    <Text style={styles.assetName} numberOfLines={1}>{getAssetName(task.assetId)}</Text>
+            {urgentTasks.length > 0 && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Needs Attention</Text>
+                  <TouchableOpacity
+                    style={styles.calendarButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      navigation.navigate('Calendar');
+                    }}
+                  >
+                    <Text style={styles.calendarButtonText}>Calendar</Text>
+                  </TouchableOpacity>
+                </View>
+                {urgentTasks.slice(0, 5).map((task) => {
+                  const status = getTaskStatus(task);
+                  return (
+                    <TouchableOpacity
+                      key={task.id}
+                      style={styles.taskCard}
+                      onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}
+                    >
+                      <View style={[styles.statusDot, { backgroundColor: getStatusColor(status) }]} />
+                      <View style={styles.taskContent}>
+                        <Text style={styles.taskName} numberOfLines={1}>{task.name}</Text>
+                        <Text style={styles.assetName} numberOfLines={1}>{getAssetName(task.assetId)}</Text>
+                      </View>
+                      <Text style={[styles.statusText, { color: getStatusColor(status) }]}>
+                        {getStatusText(task)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </>
+            )}
+            {lowStockItems.length > 0 && (
+              <>
+                <View style={[styles.sectionHeader, urgentTasks.length > 0 && { marginTop: SPACING.lg }]}>
+                  <Text style={styles.sectionTitle}>Low Stock</Text>
+                  <TouchableOpacity
+                    style={[styles.calendarButton, { backgroundColor: colors.warning }]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      navigation.navigate('Inventory');
+                    }}
+                  >
+                    <Text style={styles.calendarButtonText}>View All</Text>
+                  </TouchableOpacity>
+                </View>
+                {lowStockItems.slice(0, 3).map((item) => (
+                  <View key={item.id} style={styles.taskCard}>
+                    <TouchableOpacity
+                      style={styles.lowStockItemContent}
+                      onPress={() => navigation.getParent()?.navigate('InventoryDetail', { itemId: item.id })}
+                    >
+                      <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
+                      <View style={styles.taskContent}>
+                        <Text style={styles.taskName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.assetName} numberOfLines={1}>
+                          {item.brand ? `${item.brand} • ` : ''}{item.quantity} {item.unit} remaining
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.buyButton}
+                      onPress={() => {
+                        if (!isConnected) {
+                          Alert.alert('Offline', 'Please check your internet connection and try again.');
+                          return;
+                        }
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        Linking.openURL(getAmazonUrl(item));
+                      }}
+                    >
+                      <Ionicons name="cart" size={20} color="#FF9900" />
+                    </TouchableOpacity>
                   </View>
-                  <Text style={[styles.statusText, { color: getStatusColor(status) }]}>
-                    {getStatusText(task)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                ))}
+              </>
+            )}
           </View>
         ) : assets.length > 0 ? (
           <View style={styles.allGoodSection}>
@@ -604,7 +660,7 @@ export default function HomeScreen({ navigation }: Props) {
               Track maintenance for all your vehicles, equipment, and property.
             </Text>
             <Text style={styles.welcomeHint}>
-              Select an asset type below to get started
+              Select an asset type below, then tap + to add
             </Text>
           </View>
         )}
@@ -612,19 +668,21 @@ export default function HomeScreen({ navigation }: Props) {
 
       {/* Bottom - Asset Type Buttons */}
       <View style={styles.bottomSection}>
-        <Text style={styles.addAssetHint}>Tap a button to add an asset</Text>
+        <Text style={styles.addAssetHint}>Tap to view assets in category</Text>
         <View style={styles.categoryGrid}>
-          {ASSET_CATEGORIES.map((category) => (
+          {topCategories.map((assetClass) => (
             <TouchableOpacity
-              key={category}
+              key={assetClass.id}
               style={styles.categoryButton}
-              onPress={() => handleCategoryPress(category)}
-              onLongPress={() => handleCategoryLongPress(category)}
+              onPress={() => handleCategoryPress(assetClass)}
+              onLongPress={() => handleCategoryLongPress(assetClass)}
               delayLongPress={500}
               activeOpacity={0.7}
             >
-              <CategoryIcon icon={customIcons[category]} size={40} color={COLORS.text} />
-              <Text style={styles.categoryLabel}>{customLabels[category]}</Text>
+              <View style={styles.categoryIconContainer}>
+                <CategoryIcon icon={assetClass.icon} size={40} color={COLORS.text} />
+              </View>
+              <Text style={styles.categoryLabel}>{assetClass.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -648,7 +706,9 @@ export default function HomeScreen({ navigation }: Props) {
               onPress={() => setShowIconPicker(!showIconPicker)}
             >
               {editIconSelection && (
-                <CategoryIcon icon={editIconSelection} size={32} color={COLORS.text} />
+                <View style={styles.iconPreview}>
+                  <CategoryIcon icon={editIconSelection} size={32} color={COLORS.text} />
+                </View>
               )}
               <Text style={styles.iconSelectorText}>
                 {ICON_OPTIONS.find(opt => opt.id === editIconSelection)?.label || 'Select Icon'}
@@ -696,12 +756,14 @@ export default function HomeScreen({ navigation }: Props) {
             />
 
             <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={styles.modalButtonSecondary}
-                onPress={handleReset}
-              >
-                <Text style={styles.modalButtonSecondaryText}>Reset</Text>
-              </TouchableOpacity>
+              {editingClass?.isBuiltIn && (
+                <TouchableOpacity
+                  style={styles.modalButtonSecondary}
+                  onPress={handleReset}
+                >
+                  <Text style={styles.modalButtonSecondaryText}>Reset</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={styles.modalButtonSecondary}
                 onPress={handleCloseModal}
@@ -766,6 +828,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: SPACING.md,
     marginBottom: SPACING.sm,
+  },
+  lowStockItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  buyButton: {
+    padding: SPACING.sm,
+    marginLeft: SPACING.sm,
   },
   statusDot: {
     width: 10,
@@ -877,11 +948,19 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.background,
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     marginBottom: SPACING.sm,
     borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  categoryIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   categoryLabel: {
     fontSize: FONT_SIZE.sm,
@@ -975,6 +1054,14 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.md,
     color: COLORS.text,
   },
+  iconPreview: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   changeText: {
     fontSize: FONT_SIZE.sm,
     color: COLORS.primary,
@@ -994,7 +1081,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.background,
+    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -1003,7 +1090,6 @@ const styles = StyleSheet.create({
   iconOptionSelected: {
     borderColor: COLORS.primary,
     borderWidth: 2,
-    backgroundColor: COLORS.primaryLight + '20',
   },
   iconOptionLabel: {
     fontSize: 9,

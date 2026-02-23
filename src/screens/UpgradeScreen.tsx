@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { RootStackScreenProps } from '../navigation/types';
@@ -40,36 +42,34 @@ const PREMIUM_FEATURES = [
 
 export default function UpgradeScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
-  const { unlockPremium, restorePurchase } = usePremium();
+  const { purchasePremium, restorePurchase, currentOffering, isLoading } = usePremium();
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
 
   const feature = route.params?.feature;
+
+  // Get price from RevenueCat offering, fallback to default
+  const price = currentOffering?.lifetime?.product.priceString || '$9.99';
 
   const handlePurchase = async () => {
     setPurchasing(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // TODO: Replace with actual IAP logic
-      // For now, simulate purchase for testing
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const success = await purchasePremium();
 
-      // In production, this would be:
-      // const success = await purchasePremium();
-      // if (success) { ... }
-
-      await unlockPremium();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      Alert.alert(
-        'Welcome to Premium!',
-        'Thank you for your purchase. All premium features are now unlocked.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
-      );
-    } catch (error) {
+      if (success) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert(
+          'Welcome to Premium!',
+          'Thank you for your purchase. All premium features are now unlocked.',
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
+      }
+      // If not successful and not cancelled, purchasePremium handles the error
+    } catch (error: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Purchase Failed', 'Unable to complete purchase. Please try again.');
+      Alert.alert('Purchase Failed', error.message || 'Unable to complete purchase. Please try again.');
     } finally {
       setPurchasing(false);
     }
@@ -103,6 +103,15 @@ export default function UpgradeScreen({ navigation, route }: Props) {
   };
 
   const styles = createStyles(colors);
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -139,7 +148,7 @@ export default function UpgradeScreen({ navigation, route }: Props) {
       </View>
 
       <View style={styles.priceContainer}>
-        <Text style={styles.price}>$9.99</Text>
+        <Text style={styles.price}>{price}</Text>
         <Text style={styles.priceSubtext}>One-time purchase • Lifetime access</Text>
       </View>
 
@@ -164,7 +173,7 @@ export default function UpgradeScreen({ navigation, route }: Props) {
       </TouchableOpacity>
 
       <Text style={styles.terms}>
-        Payment will be charged to your App Store account. By purchasing, you agree to our Terms of Service.
+        Payment will be charged to your {Platform.OS === 'ios' ? 'Apple ID' : 'Google Play account'}. By purchasing, you agree to our Terms of Service.
       </Text>
     </ScrollView>
   );
@@ -175,6 +184,15 @@ const createStyles = (colors: any) =>
     container: {
       flex: 1,
       backgroundColor: colors.background,
+    },
+    loadingContainer: {
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    loadingText: {
+      marginTop: SPACING.md,
+      fontSize: FONT_SIZE.md,
+      color: colors.textSecondary,
     },
     content: {
       padding: SPACING.lg,
