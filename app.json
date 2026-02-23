@@ -15,10 +15,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.duesoon.app",
-      "buildNumber": "5",
+      "buildNumber": "13",
       "icon": "./assets/duesoon-shield-square.png",
       "infoPlist": {
-        "NSUserTrackingUsageDescription": "This app does not track you.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
